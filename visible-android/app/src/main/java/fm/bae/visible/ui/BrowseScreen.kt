@@ -17,8 +17,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -51,11 +49,11 @@ fun BrowseScreen(
     onOpenChild: (String) -> Unit,
 ) {
     val content = viewModel.content
-    val setImage = rememberCameraCapture(onCaptured = viewModel::setImage)
+    val launchCamera = rememberCameraCapture(onCaptured = viewModel::setImage)
 
     // Reload whenever this screen becomes current: on first show and on return
-    // from a child, so a node's photo or its children reflect changes made
-    // while descended (the UX spec reloads each screen when it appears).
+    // from a child, so a node's photo or its children reflect changes made while
+    // descended.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.reload() }
 
     // Deleting the current node pops back to its parent.
@@ -111,7 +109,7 @@ fun BrowseScreen(
                     viewModel = viewModel,
                     node = content.node,
                     children = content.children,
-                    onTakePhoto = setImage::launch,
+                    onTakePhoto = launchCamera,
                     onOpenChild = onOpenChild,
                 )
             }
@@ -201,23 +199,12 @@ private fun NodeOverflowMenu(
     IconButton(onClick = { expanded = true }) {
         Icon(Icons.Filled.MoreVert, contentDescription = "More")
     }
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        DropdownMenuItem(
-            text = { Text("Rename") },
-            onClick = {
-                expanded = false
-                onRename()
-            },
-        )
-        // The root house has no parent and can't be deleted in v1.
-        if (node.parentId != null) {
-            DropdownMenuItem(
-                text = { Text("Delete") },
-                onClick = {
-                    expanded = false
-                    onDelete()
-                },
-            )
-        }
-    }
+    NodeActionsMenu(
+        expanded = expanded,
+        onDismiss = { expanded = false },
+        onRename = onRename,
+        onDelete = onDelete,
+        // The root house has no parent and can't be deleted.
+        canDelete = node.parentId != null,
+    )
 }

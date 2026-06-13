@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,22 +56,13 @@ fun ChildCard(
                     modifier = Modifier.fillMaxWidth().padding(8.dp),
                 )
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("Rename") },
-                    onClick = {
-                        menuOpen = false
-                        onRename()
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Delete") },
-                    onClick = {
-                        menuOpen = false
-                        onDelete()
-                    },
-                )
-            }
+            NodeActionsMenu(
+                expanded = menuOpen,
+                onDismiss = { menuOpen = false },
+                onRename = onRename,
+                onDelete = onDelete,
+                canDelete = true,
+            )
         }
     }
 }

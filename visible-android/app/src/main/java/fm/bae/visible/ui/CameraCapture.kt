@@ -18,19 +18,16 @@ import java.io.File
 
 private const val TAG = "visible.CameraCapture"
 
-/** Opens the camera and delivers the captured photo's JPEG bytes. */
-fun interface CameraCapture {
-    fun launch()
-}
-
 /**
- * A [CameraCapture] backed by [ActivityResultContracts.TakePicture]: it writes
- * the photo to a temp file in the cache via a [FileProvider] content uri, and on
- * success reads the JPEG bytes back and hands them to [onCaptured], then deletes
- * the temp file. Requests the camera permission first if it isn't granted.
+ * Opens the camera and delivers the captured photo's JPEG bytes, backed by
+ * [ActivityResultContracts.TakePicture]: it writes the photo to a temp file in
+ * the cache via a [FileProvider] content uri, and on success reads the JPEG
+ * bytes back and hands them to [onCaptured], then deletes the temp file.
+ * Requests the camera permission first if it isn't granted. Returns the launch
+ * function to invoke (e.g. from an onClick).
  */
 @Composable
-fun rememberCameraCapture(onCaptured: (ByteArray) -> Unit): CameraCapture {
+fun rememberCameraCapture(onCaptured: (ByteArray) -> Unit): () -> Unit {
     val context = LocalContext.current
 
     // The temp file's path, held across the launcher round-trip. Saved (not
@@ -39,10 +36,17 @@ fun rememberCameraCapture(onCaptured: (ByteArray) -> Unit): CameraCapture {
     var pendingPath: String? by rememberSaveable { mutableStateOf(null) }
 
     fun readAndClear() {
-        val file = pendingPath?.let(::File) ?: return
+        val path = pendingPath
+        if (path == null) {
+            Log.w(TAG, "capture reported success but no pending temp-file path was held")
+            return
+        }
         pendingPath = null
+        val file = File(path)
         onCaptured(file.readBytes())
-        file.delete()
+        if (!file.delete()) {
+            Log.w(TAG, "failed to delete captured temp file $path")
+        }
     }
 
     val takePicture = rememberLauncherForActivityResult(
@@ -51,7 +55,12 @@ fun rememberCameraCapture(onCaptured: (ByteArray) -> Unit): CameraCapture {
         if (saved) {
             readAndClear()
         } else {
-            pendingPath?.let(::File)?.delete()
+            val path = pendingPath
+            if (path == null) {
+                Log.w(TAG, "capture was cancelled but no pending temp-file path was held")
+            } else if (!File(path).delete()) {
+                Log.w(TAG, "failed to delete cancelled-capture temp file $path")
+            }
             pendingPath = null
         }
     }
@@ -78,7 +87,7 @@ fun rememberCameraCapture(onCaptured: (ByteArray) -> Unit): CameraCapture {
         }
     }
 
-    return CameraCapture {
+    return {
         val granted = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.CAMERA,

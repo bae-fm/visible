@@ -1,14 +1,20 @@
 package fm.bae.visible.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,14 +40,24 @@ private fun browseRoute(nodeId: String) = "browse/$nodeId"
 @Composable
 fun AppRoot(session: AppSession) {
     val context = LocalContext.current
-    val state by produceState<SessionState>(SessionState.Loading, session) {
+    // Bumping this re-keys produceState, which re-runs session.open. A failed
+    // open is not cached, so the retry re-attempts it.
+    var attempt by remember { mutableIntStateOf(0) }
+    val state by produceState<SessionState>(SessionState.Loading, session, attempt) {
+        value = SessionState.Loading
         value = session.open(context)
     }
 
     when (val s = state) {
         is SessionState.Loading -> CenteredMessage { CircularProgressIndicator() }
         is SessionState.Failed -> CenteredMessage {
-            Text(s.message, color = MaterialTheme.colorScheme.error)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(s.message, color = MaterialTheme.colorScheme.error)
+                Button(onClick = { attempt++ }) { Text("Retry") }
+            }
         }
         is SessionState.Open -> BrowseNavigation(handle = s.handle, rootId = s.rootId)
     }

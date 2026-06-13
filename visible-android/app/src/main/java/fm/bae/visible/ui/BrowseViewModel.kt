@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -66,9 +67,11 @@ class BrowseViewModel(
                     val node = handle.getNode(nodeId)
                         ?: return@withContext BrowseContent.Failed("This item no longer exists.")
                     BrowseContent.Loaded(node, handle.children(nodeId))
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "loading node $nodeId failed", e)
-                    BrowseContent.Failed(e.message ?: "Failed to load.")
+                    BrowseContent.Failed(e.message ?: e.toString())
                 }
             }
         }
@@ -146,9 +149,11 @@ class BrowseViewModel(
             try {
                 write()
                 null
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "$description failed", e)
-                e.message ?: "Operation failed."
+                e.message ?: e.toString()
             }
         }
 }

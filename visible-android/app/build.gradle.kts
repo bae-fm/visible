@@ -37,9 +37,10 @@ android {
 }
 
 dependencies {
-    // Pinned to the Kotlin 2.0.21 / AGP 8.7.3 / compileSdk 35 toolchain. Newer
-    // AndroidX releases pull a Kotlin 2.2+/2.3 stdlib that the 2.0.21 compiler
-    // can't read, and the newest lines require compileSdk 36 / AGP 8.9+.
+    // These AndroidX versions are the highest compatible with the Kotlin 2.0.21
+    // / AGP 8.7.3 / compileSdk 35 toolchain: above them, AndroidX pulls a Kotlin
+    // 2.2+ stdlib the 2.0.21 compiler can't read, or requires compileSdk 36 /
+    // AGP 8.9+.
     val composeBom = platform("androidx.compose:compose-bom:2025.01.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
