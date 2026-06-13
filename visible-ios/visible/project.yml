@@ -1,0 +1,44 @@
+name: visible
+options:
+  bundleIdPrefix: fm.bae
+  deploymentTarget:
+    # 17.0: the app uses the Observation framework (`@Observable`), which
+    # requires iOS 17. The bridge static libs are minos 17.0, which the app
+    # target satisfies.
+    iOS: "17.0"
+  xcodeVersion: "26.0"
+targets:
+  visible:
+    type: application
+    platform: iOS
+    sources:
+      # The app source dir, including the gitignored visible_bridge.swift and
+      # Info.plist that build-ios.sh / xcodegen produce here.
+      - visible
+    dependencies:
+      - framework: ../VisibleBridgeFFI-ios.xcframework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fm.bae.visible
+        PRODUCT_NAME: visible
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: 1
+        INFOPLIST_FILE: visible/Info.plist
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        # No bundled app icon yet — drop xcodegen's default `AppIcon` lookup so
+        # the asset catalog compiles without one.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        # The bridge xcframework ships only an arm64 simulator slice (build-ios.sh
+        # cross-compiles aarch64-apple-ios-sim, no x86_64), so an x86_64 simulator
+        # build can't link. Exclude it; arm64 covers Apple Silicon simulators.
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+        # The Rust staticlib pulls coven's transitive crates (rustls, aws-sdk,
+        # keyring, etc.) even though v1 never calls them, so the link step must
+        # satisfy their system dependencies.
+        OTHER_LDFLAGS:
+          - -lz
+          - -liconv
+          - -framework Security
+          - -framework SystemConfiguration
+          - -framework CoreFoundation
