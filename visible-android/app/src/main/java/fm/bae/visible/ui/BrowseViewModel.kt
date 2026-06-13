@@ -132,10 +132,7 @@ class BrowseViewModel(
     fun imagePath(imageId: String): String? {
         val path = handle.imagePathIfExists(imageId)
         if (path == null) {
-            // The node references an image whose file isn't on disk. Today this
-            // can't happen (set_image writes the file before recording the id);
-            // once libraries sync it is the normal "row arrived, blob not pulled
-            // yet" case. Either way the caller renders the placeholder.
+            // A node whose image file isn't on disk renders the placeholder.
             Log.d(TAG, "no image file for $imageId; showing placeholder")
         }
         return path
