@@ -27,8 +27,8 @@ struct ChildCard: View {
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .contextMenu {
-            Button("Rename", action: onRename)
-            Button("Delete", role: .destructive, action: onDelete)
+            // A child always has a parent, so it can always be deleted.
+            NodeActionsMenu(onRename: onRename, onDelete: onDelete, canDelete: true)
         }
     }
 }

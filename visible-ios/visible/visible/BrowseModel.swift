@@ -29,8 +29,10 @@ enum BrowseDialog: Identifiable {
 /// Loads and mutates one node's browse state. Bridge calls touch SQLite so they
 /// run off the main actor; the read-modify-write of the screen state happens
 /// here on the model, not in the view
-/// (observable-mutate-on-the-state-not-the-view). The view iterates over
-/// ``content`` and renders it.
+/// (observable-mutate-on-the-state-not-the-view). The model also owns the
+/// concurrency: every method that does async work launches its own `Task`, so
+/// the view calls them synchronously and never wraps a model call in an ad-hoc
+/// `Task`. The view iterates over ``content`` and renders it.
 @MainActor
 @Observable
 final class BrowseModel {
@@ -38,6 +40,9 @@ final class BrowseModel {
     private let nodeId: String
 
     private(set) var content: BrowseContent = .loading
+    // Writable so `.sheet(item:)` can clear it when the user swipes the sheet
+    // down; the OPENING transitions go through `openAddChild`/`openRename`/
+    // `openDelete` so the view never assigns a dialog state directly.
     var dialog: BrowseDialog?
 
     // A one-shot signal that this node was deleted and the screen showing it
@@ -52,50 +57,70 @@ final class BrowseModel {
         self.nodeId = nodeId
     }
 
-    func reload() async {
+    func reload() {
         let handle = handle
         let nodeId = nodeId
-        content = await Task.detached {
-            do {
-                guard let node = try handle.getNode(id: nodeId) else {
-                    return BrowseContent.failed("This item no longer exists.")
+        Task {
+            content = await Task.detached {
+                do {
+                    guard let node = try handle.getNode(id: nodeId) else {
+                        return BrowseContent.failed("This item no longer exists.")
+                    }
+                    return try BrowseContent.loaded(node: node, children: handle.children(parentId: nodeId))
+                } catch {
+                    logger.error("loading node \(nodeId, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                    return BrowseContent.failed(error.localizedDescription)
                 }
-                return try BrowseContent.loaded(node: node, children: handle.children(parentId: nodeId))
-            } catch {
-                logger.error("loading node \(nodeId, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-                return BrowseContent.failed(error.localizedDescription)
-            }
-        }.value
+            }.value
+        }
     }
 
-    func addChild(name: String) async {
-        dialog = nil
-        await mutate("creating child of \(nodeId)") { _ = try $0.createNode(parentId: self.nodeId, name: name) }
+    func openAddChild() {
+        dialog = .addChild
     }
 
-    func rename(id: String, name: String) async {
+    func openRename(_ node: BridgeNode) {
+        dialog = .rename(target: node)
+    }
+
+    func openDelete(_ node: BridgeNode) {
+        dialog = .confirmDelete(target: node)
+    }
+
+    func dismissDialog() {
         dialog = nil
-        await mutate("renaming \(id)") { try $0.renameNode(id: id, name: name) }
+    }
+
+    func addChild(name: String) {
+        dialog = nil
+        mutate("creating child of \(nodeId)") { _ = try $0.createNode(parentId: self.nodeId, name: name) }
+    }
+
+    func rename(id: String, name: String) {
+        dialog = nil
+        mutate("renaming \(id)") { try $0.renameNode(id: id, name: name) }
     }
 
     /// Delete `id`. Deleting a child reloads this screen; deleting this node
     /// itself signals the screen to pop to the parent (reloading a deleted node
     /// would only show a dead screen).
-    func delete(id: String) async {
+    func delete(id: String) {
         dialog = nil
         if id == nodeId {
-            if let error = await runWrite("deleting \(nodeId)", { try $0.deleteNode(id: self.nodeId) }) {
-                content = .failed(error)
-            } else {
-                deletedSelf.send(())
+            Task {
+                if let error = await runWrite("deleting \(nodeId)", { try $0.deleteNode(id: self.nodeId) }) {
+                    content = .failed(error)
+                } else {
+                    deletedSelf.send(())
+                }
             }
         } else {
-            await mutate("deleting \(id)") { try $0.deleteNode(id: id) }
+            mutate("deleting \(id)") { try $0.deleteNode(id: id) }
         }
     }
 
-    func setImage(_ bytes: Data) async {
-        await mutate("setting image on \(nodeId)") { try $0.setNodeImage(id: self.nodeId, bytes: bytes) }
+    func setImage(_ bytes: Data) {
+        mutate("setting image on \(nodeId)") { try $0.setNodeImage(id: self.nodeId, bytes: bytes) }
     }
 
     /// The local file path for `imageId` if its file exists, else nil. The
@@ -104,22 +129,22 @@ final class BrowseModel {
     func imagePath(_ imageId: String) -> String? {
         let path = handle.imagePathIfExists(imageId: imageId)
         if path == nil {
-            // The node references an image whose file isn't on disk. Today this
-            // can't happen (set_image writes the file before recording the id);
-            // once libraries sync it is the normal "row arrived, blob not pulled
-            // yet" case. Either way the caller renders the placeholder.
+            // A node whose image file isn't on disk renders the placeholder.
             logger.debug("no image file for \(imageId, privacy: .public); showing placeholder")
         }
         return path
     }
 
     /// Runs a bridge write off the main actor, then reloads to reflect the new
-    /// state, or surfaces the failure.
-    private func mutate(_ description: String, _ write: @escaping @Sendable (AppHandle) throws -> Void) async {
-        if let error = await runWrite(description, write) {
-            content = .failed(error)
-        } else {
-            await reload()
+    /// state, or surfaces the failure. Launches its own task so callers stay
+    /// synchronous.
+    private func mutate(_ description: String, _ write: @escaping @Sendable (AppHandle) throws -> Void) {
+        Task {
+            if let error = await runWrite(description, write) {
+                content = .failed(error)
+            } else {
+                reload()
+            }
         }
     }
 

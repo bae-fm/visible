@@ -5,8 +5,6 @@ import SwiftUI
 /// the trimmed text is blank, so an empty name can't be submitted.
 struct NameSheet: View {
     let title: String
-    let confirmLabel: String
-    let initial: String
     let onConfirm: (String) -> Void
     let onCancel: () -> Void
 
@@ -14,14 +12,11 @@ struct NameSheet: View {
 
     init(
         title: String,
-        confirmLabel: String,
         initial: String,
         onConfirm: @escaping (String) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.title = title
-        self.confirmLabel = confirmLabel
-        self.initial = initial
         self.onConfirm = onConfirm
         self.onCancel = onCancel
         _text = State(initialValue: initial)
@@ -46,7 +41,7 @@ struct NameSheet: View {
                     Button("Cancel", action: onCancel)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(confirmLabel) { onConfirm(trimmed) }
+                    Button(title) { onConfirm(trimmed) }
                         .disabled(trimmed.isEmpty)
                 }
             }

@@ -1,9 +1,15 @@
 import SwiftUI
+import UIKit
+import os.log
+
+private let logger = Logger.visible("BrowseView")
 
 /// Shows one node: its photo header (which scrolls with the contents), a
 /// 2-column grid of its children, an empty state, an add button, and a menu to
 /// rename or delete the node. Reloads whenever it appears (first show and on
-/// return from a child). Deleting the current node pops back to its parent.
+/// return from a child). Deleting the current node pops back to its parent. The
+/// view only calls ``BrowseModel`` methods and renders; the model owns the
+/// state mutation and the concurrency.
 struct BrowseView: View {
     let onOpenChild: (String) -> Void
     let onPop: () -> Void
@@ -35,33 +41,32 @@ struct BrowseView: View {
                 if case let .loaded(node, _) = model.content {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
-                            Button("Rename") { model.dialog = .rename(target: node) }
-                            // The root house has no parent and can't be deleted.
-                            if node.parentId != nil {
-                                Button("Delete", role: .destructive) {
-                                    model.dialog = .confirmDelete(target: node)
-                                }
-                            }
+                            NodeActionsMenu(
+                                onRename: { model.openRename(node) },
+                                onDelete: { model.openDelete(node) },
+                                // The root house has no parent and can't be deleted.
+                                canDelete: node.parentId != nil
+                            )
                         } label: {
                             Image(systemName: "ellipsis.circle")
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
-                            model.dialog = .addChild
+                            model.openAddChild()
                         } label: {
                             Image(systemName: "plus")
                         }
                     }
                 }
             }
-            .onAppear { Task { await model.reload() } }
+            .task { model.reload() }
             .onReceive(model.deletedSelf) { onPop() }
             .sheet(isPresented: $showCamera) {
                 CameraView(
                     onCaptured: { bytes in
                         showCamera = false
-                        Task { await model.setImage(bytes) }
+                        model.setImage(bytes)
                     },
                     onCancel: { showCamera = false }
                 )
@@ -74,6 +79,16 @@ struct BrowseView: View {
 
     private var title: String {
         if case let .loaded(node, _) = model.content { node.name } else { "" }
+    }
+
+    /// Presents the camera, or logs and does nothing when no camera is
+    /// available (the simulator and camera-less devices show a blank picker).
+    private func openCamera() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            logger.warning("no camera available on this device; not presenting the picker")
+            return
+        }
+        showCamera = true
     }
 
     @ViewBuilder
@@ -102,7 +117,7 @@ struct BrowseView: View {
                     .aspectRatio(1, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .gridCellColumns(2)
-                    .onTapGesture { showCamera = true }
+                    .onTapGesture { openCamera() }
 
                 if children.isEmpty {
                     Text("Nothing here yet — add the first thing.")
@@ -117,8 +132,8 @@ struct BrowseView: View {
                             child: child,
                             path: child.imageId.flatMap(model.imagePath),
                             onOpen: { onOpenChild(child.id) },
-                            onRename: { model.dialog = .rename(target: child) },
-                            onDelete: { model.dialog = .confirmDelete(target: child) }
+                            onRename: { model.openRename(child) },
+                            onDelete: { model.openDelete(child) }
                         )
                     }
                 }
@@ -133,24 +148,22 @@ struct BrowseView: View {
         case .addChild:
             NameSheet(
                 title: "Add",
-                confirmLabel: "Add",
                 initial: "",
-                onConfirm: { name in Task { await model.addChild(name: name) } },
-                onCancel: { model.dialog = nil }
+                onConfirm: { name in model.addChild(name: name) },
+                onCancel: { model.dismissDialog() }
             )
         case let .rename(target):
             NameSheet(
                 title: "Rename",
-                confirmLabel: "Rename",
                 initial: target.name,
-                onConfirm: { name in Task { await model.rename(id: target.id, name: name) } },
-                onCancel: { model.dialog = nil }
+                onConfirm: { name in model.rename(id: target.id, name: name) },
+                onCancel: { model.dismissDialog() }
             )
         case let .confirmDelete(target):
             DeleteConfirmSheet(
                 name: target.name,
-                onConfirm: { Task { await model.delete(id: target.id) } },
-                onCancel: { model.dialog = nil }
+                onConfirm: { model.delete(id: target.id) },
+                onCancel: { model.dismissDialog() }
             )
         }
     }
