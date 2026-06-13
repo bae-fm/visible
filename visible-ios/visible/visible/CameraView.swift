@@ -38,10 +38,13 @@ struct CameraView: UIViewControllerRepresentable {
             _: UIImagePickerController,
             didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
         ) {
-            guard let image = info[.originalImage] as? UIImage,
-                  let jpeg = image.jpegData(compressionQuality: 0.85)
-            else {
-                logger.warning("camera returned no usable image; ignoring capture")
+            guard let image = info[.originalImage] as? UIImage else {
+                logger.warning("camera picker returned no image; dismissing capture")
+                onCancel()
+                return
+            }
+            guard let jpeg = image.jpegData(compressionQuality: 0.85) else {
+                logger.warning("jpegData conversion of the captured image failed; dismissing capture")
                 onCancel()
                 return
             }
