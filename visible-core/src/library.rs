@@ -56,7 +56,7 @@ pub fn discover(data_dir: &Path) -> Result<Vec<LibraryInfo>, CoreError> {
         let entry = match entry {
             Ok(entry) => entry,
             Err(e) => {
-                warn!("skipping unreadable library dir entry: {e}");
+                warn!(dir = %libraries_dir.display(), "skipping unreadable library dir entry: {e}");
                 continue;
             }
         };

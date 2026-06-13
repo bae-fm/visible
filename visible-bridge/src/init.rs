@@ -36,10 +36,13 @@ fn env_filter() -> tracing_subscriber::EnvFilter {
     }
 }
 
-// Install the global subscriber, ignoring the "already initialized" error —
-// the documented use of `try_init`.
+// Install the global subscriber. `try_init` fails only when one is already
+// installed (init_app ran earlier in this process), which is the expected
+// idempotent case — the existing subscriber stays and receives this line.
 fn install_subscriber(subscriber: impl tracing_subscriber::util::SubscriberInitExt) {
-    let _ = subscriber.try_init();
+    if subscriber.try_init().is_err() {
+        tracing::debug!("tracing subscriber already initialized; reusing the existing one");
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
