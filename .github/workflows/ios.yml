@@ -1,0 +1,48 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build simulator app
+    runs-on: macos-26
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+
+    - name: Install xcodegen
+      run: brew install xcodegen
+
+    - name: Build bridge (cross-compile device + sim, generate Swift bindings, package xcframework)
+      run: ./visible-bridge/build-ios.sh
+
+    - name: Generate Xcode project
+      run: cd visible-ios/visible && xcodegen generate
+
+    - name: Build simulator app (unsigned)
+      run: |
+        xcodebuild \
+          -project visible-ios/visible/visible.xcodeproj \
+          -scheme visible \
+          -configuration Debug \
+          -sdk iphonesimulator \
+          -destination 'generic/platform=iOS Simulator' \
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+          build
