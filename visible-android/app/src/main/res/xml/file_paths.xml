@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- The camera writes the captured photo here; matches the dir
+         CameraCapture creates the temp file in (cacheDir/camera-capture). -->
+    <cache-path name="camera-capture" path="camera-capture/" />
+</paths>
