@@ -1,4 +1,7 @@
 import SwiftUI
+import os.log
+
+private let logger = Logger.visible("NodeImageView")
 
 /// A node's photo at `path`, clipped to a rounded square, or a neutral
 /// placeholder when `path` is nil (no image, or its file is missing). The path
@@ -41,6 +44,11 @@ struct NodeImageView: View {
             UIImage(contentsOfFile: path)
         }.value
         if Task.isCancelled { return }
+        if decoded == nil {
+            // The path came from `imagePathIfExists`, so the file was present;
+            // a nil decode means its bytes aren't a valid image.
+            logger.warning("decoding image at \(path, privacy: .public) failed; showing placeholder")
+        }
         image = decoded
     }
 }
