@@ -135,6 +135,25 @@ async fn delete_missing_node_is_not_found() {
 }
 
 #[tokio::test]
+async fn delete_root_errors_and_leaves_the_tree_intact() {
+    let (inv, _temp) = open_inventory().await;
+    let room = inv.create_child("root", "Room".into()).await.unwrap();
+
+    let err = inv.delete("root").await.unwrap_err();
+    assert!(
+        matches!(err, visible_core::CoreError::Internal(_)),
+        "{err:?}"
+    );
+
+    // The root and its subtree are untouched; a non-root delete still works.
+    assert!(inv.root().await.is_ok());
+    assert!(inv.get(&room.id).await.unwrap().is_some());
+    inv.delete(&room.id).await.unwrap();
+    assert!(inv.get(&room.id).await.unwrap().is_none());
+    assert!(inv.root().await.is_ok());
+}
+
+#[tokio::test]
 async fn set_image_writes_then_replacing_removes_the_old_file() {
     let (inv, _temp) = open_inventory().await;
     let node = inv.create_child("root", "Lamp".into()).await.unwrap();

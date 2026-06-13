@@ -197,9 +197,21 @@ impl Inventory {
     /// concurrent insert can slip into the subtree between collect and delete.
     /// The disk unlinks are best-effort and a failed one is logged, not fatal
     /// (the row is already gone).
+    ///
+    /// The root house (`parent_id` NULL) cannot be deleted: the tree always has
+    /// exactly one root, so deleting it would leave an empty library with no node
+    /// to browse. NotFound if the node doesn't exist.
     pub async fn delete(&self, id: &str) -> Result<(), CoreError> {
+        let target = self
+            .get(id)
+            .await?
+            .ok_or_else(|| CoreError::NotFound(format!("no node {id} to delete")))?;
+        if target.parent_id.is_none() {
+            return Err(CoreError::Internal("cannot delete the root node".into()));
+        }
+
         let id_for_delete = id.to_string();
-        let (affected, image_ids): (usize, Vec<String>) = self
+        let image_ids: Vec<String> = self
             .db
             .call(move |conn| {
                 // Walk the subtree down `parent_id`, collecting every node's
@@ -216,13 +228,10 @@ impl Inventory {
                 let image_ids = stmt
                     .query_map([&id_for_delete], |r| r.get::<_, String>(0))?
                     .collect::<coven::rusqlite::Result<Vec<_>>>()?;
-                let affected = conn.execute("DELETE FROM nodes WHERE id = ?1", [&id_for_delete])?;
-                Ok((affected, image_ids))
+                conn.execute("DELETE FROM nodes WHERE id = ?1", [&id_for_delete])?;
+                Ok(image_ids)
             })
             .await?;
-        if affected == 0 {
-            return Err(CoreError::NotFound(format!("no node {id} to delete")));
-        }
 
         for image_id in image_ids {
             self.remove_image_file(&image_id);
