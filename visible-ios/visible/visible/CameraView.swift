@@ -100,7 +100,7 @@ struct CameraView: View {
         }
         .frame(minWidth: 480, minHeight: 360)
         .task {
-            await capture.start(onCaptured: onCaptured, onCancel: onCancel)
+            await capture.start(onCancel: onCancel)
         }
         .onDisappear { capture.stop() }
     }
@@ -126,18 +126,34 @@ private final class CameraCapture {
     @ObservationIgnored private var delegate: PhotoCaptureDelegate?
 
     /// Requests camera access, configures the session, and starts it. On a
-    /// denied permission or a missing/unusable device it logs and calls
-    /// `onCancel` without starting.
-    func start(onCaptured: @escaping (Data) -> Void, onCancel: @escaping () -> Void) async {
+    /// denied permission, a missing/unusable device, or a session that won't
+    /// accept the input or output it logs and calls `onCancel` without starting.
+    func start(onCancel: @escaping () -> Void) async {
         guard await AVCaptureDevice.requestAccess(for: .video) else {
             logger.warning("camera access denied; dismissing capture")
             onCancel()
             return
         }
-        guard let device = AVCaptureDevice.default(for: .video),
-              let input = try? AVCaptureDeviceInput(device: device)
-        else {
+        guard let device = AVCaptureDevice.default(for: .video) else {
             logger.warning("no usable camera device; dismissing capture")
+            onCancel()
+            return
+        }
+        let input: AVCaptureDeviceInput
+        do {
+            input = try AVCaptureDeviceInput(device: device)
+        } catch {
+            logger.warning("camera input init failed: \(error.localizedDescription, privacy: .public); dismissing capture")
+            onCancel()
+            return
+        }
+        guard session.canAddInput(input) else {
+            logger.warning("session rejected the camera input; dismissing capture")
+            onCancel()
+            return
+        }
+        guard session.canAddOutput(output) else {
+            logger.warning("session rejected the photo output; dismissing capture")
             onCancel()
             return
         }
@@ -147,14 +163,21 @@ private final class CameraCapture {
         nonisolated(unsafe) let deviceInput = input
         sessionQueue.async {
             session.beginConfiguration()
-            if session.canAddInput(deviceInput) { session.addInput(deviceInput) }
-            if session.canAddOutput(output) { session.addOutput(output) }
+            session.addInput(deviceInput)
+            session.addOutput(output)
             session.commitConfiguration()
             session.startRunning()
         }
     }
 
     func capturePhoto(onCaptured: @escaping (Data) -> Void, onCancel: @escaping () -> Void) {
+        // A capture in flight already owns the delegate; ignore a second Capture
+        // tap so it can't replace the live delegate mid-capture. The sheet
+        // dismisses when the in-flight capture completes, tearing this down.
+        guard delegate == nil else {
+            logger.debug("capture already in flight; ignoring repeat Capture tap")
+            return
+        }
         // The delegate runs on the session queue and reports the JPEG bytes, or
         // nil when the capture failed (it logs the cause itself). Hop to the main
         // actor to call back into the UI.
