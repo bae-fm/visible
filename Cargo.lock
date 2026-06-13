@@ -3845,7 +3845,6 @@ name = "visible-bridge"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.18",
- "tokio",
  "tracing-android",
  "tracing-oslog",
  "tracing-subscriber",

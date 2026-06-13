@@ -253,7 +253,8 @@ impl Inventory {
         let updated_at = self.stamper.stamp();
         let id = id.to_string();
         let new_image_id = image_id.clone();
-        self.db
+        let update = self
+            .db
             .call(move |conn| {
                 conn.execute(
                     "UPDATE nodes SET image_id = ?1, _updated_at = ?2 WHERE id = ?3",
@@ -261,7 +262,14 @@ impl Inventory {
                 )
                 .map_err(Into::into)
             })
-            .await?;
+            .await;
+        if update.is_err() {
+            // The row never took the new image, so the file just written is
+            // orphaned under a fresh uuid nothing references. Unlink it before
+            // surfacing the error rather than leaking it.
+            self.remove_image_file(&image_id);
+        }
+        update?;
 
         if let Some(old) = existing.image_id {
             self.remove_image_file(&old);
