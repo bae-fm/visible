@@ -15,10 +15,7 @@ struct DeleteConfirmSheet: View {
                 Spacer()
             }
             .frame(maxWidth: .infinity)
-            .navigationTitle("Delete")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .inlineNavigationTitle("Delete")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
@@ -28,10 +25,6 @@ struct DeleteConfirmSheet: View {
                 }
             }
         }
-        #if os(iOS)
-        .presentationDetents([.medium])
-        #else
-        .frame(minWidth: 360, minHeight: 160)
-        #endif
+        .sheetChrome()
     }
 }

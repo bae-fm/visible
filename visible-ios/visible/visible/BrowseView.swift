@@ -34,10 +34,7 @@ struct BrowseView: View {
 
     var body: some View {
         content
-            .navigationTitle(title)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .inlineNavigationTitle(title)
             .toolbar {
                 if case let .loaded(node, _) = model.content {
                     ToolbarItem(placement: .primaryAction) {
