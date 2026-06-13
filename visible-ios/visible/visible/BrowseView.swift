@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import os.log
 
 private let logger = Logger.visible("BrowseView")
@@ -36,10 +35,12 @@ struct BrowseView: View {
     var body: some View {
         content
             .navigationTitle(title)
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 if case let .loaded(node, _) = model.content {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .primaryAction) {
                         Menu {
                             NodeActionsMenu(
                                 onRename: { model.openRename(node) },
@@ -51,7 +52,7 @@ struct BrowseView: View {
                             Image(systemName: "ellipsis.circle")
                         }
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .primaryAction) {
                         Button {
                             model.openAddChild()
                         } label: {
@@ -82,10 +83,10 @@ struct BrowseView: View {
     }
 
     /// Presents the camera, or logs and does nothing when no camera is
-    /// available (the simulator and camera-less devices show a blank picker).
+    /// available (the simulator and camera-less devices have none).
     private func openCamera() {
-        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            logger.warning("no camera available on this device; not presenting the picker")
+        guard CameraView.isAvailable else {
+            logger.warning("no camera available on this device; not presenting the camera")
             return
         }
         showCamera = true

@@ -30,12 +30,16 @@ struct NameSheet: View {
         NavigationStack {
             Form {
                 TextField("Name", text: $text)
+                    #if os(iOS)
                     .textInputAutocapitalization(.sentences)
+                    #endif
                     .submitLabel(.done)
                     .onSubmit { if !trimmed.isEmpty { onConfirm(trimmed) } }
             }
             .navigationTitle(title)
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
@@ -46,6 +50,10 @@ struct NameSheet: View {
                 }
             }
         }
+        #if os(iOS)
         .presentationDetents([.medium])
+        #else
+        .frame(minWidth: 360, minHeight: 160)
+        #endif
     }
 }

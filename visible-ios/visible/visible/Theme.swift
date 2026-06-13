@@ -25,9 +25,16 @@ enum Theme {
 private extension Color {
     /// A color that resolves to `light` or `dark` by the active interface style.
     init(light: Color, dark: Color) {
+        #if os(macOS)
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark ? NSColor(dark) : NSColor(light)
+        })
+        #else
         self.init(uiColor: UIColor { traits in
             traits.userInterfaceStyle == .dark
                 ? UIColor(dark) : UIColor(light)
         })
+        #endif
     }
 }

@@ -3,6 +3,12 @@ import os.log
 
 private let logger = Logger.visible("NodeImageView")
 
+#if os(macOS)
+typealias PlatformImage = NSImage
+#else
+typealias PlatformImage = UIImage
+#endif
+
 /// A node's photo at `path`, clipped to a rounded square, or a neutral
 /// placeholder when `path` is nil (no image, or its file is missing). The path
 /// comes straight from the bridge's `imagePathIfExists`; replacing a photo mints
@@ -11,12 +17,12 @@ struct NodeImageView: View {
     let path: String?
     var cornerRadius: CGFloat = 0
 
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
 
     var body: some View {
         ZStack {
             if let image {
-                Image(uiImage: image)
+                platformImage(image)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -35,13 +41,21 @@ struct NodeImageView: View {
         }
     }
 
+    private func platformImage(_ image: PlatformImage) -> Image {
+        #if os(macOS)
+        Image(nsImage: image)
+        #else
+        Image(uiImage: image)
+        #endif
+    }
+
     private func load() async {
         guard let path else {
             image = nil
             return
         }
         let decoded = await Task.detached(priority: .userInitiated) {
-            UIImage(contentsOfFile: path)
+            PlatformImage(contentsOfFile: path)
         }.value
         if Task.isCancelled { return }
         if decoded == nil {
