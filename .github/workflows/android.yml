@@ -1,0 +1,49 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Keep in sync with visible-bridge/build-android.sh's NDK default.
+  NDK_VERSION: 29.0.14206865
+
+jobs:
+  build:
+    name: Build debug APK
+    runs-on: macos-26
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - name: Install NDK + platform
+      run: |
+        SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        yes | "$SDKMANAGER" --licenses >/dev/null
+        "$SDKMANAGER" "ndk;${NDK_VERSION}" "platforms;android-35"
+        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+    - name: Build bridge (cross-compile + generate Kotlin bindings + stage .so)
+      run: ./visible-bridge/build-android.sh
+
+    - name: Assemble debug APK
+      run: cd visible-android && ./gradlew assembleDebug --no-daemon
