@@ -1,0 +1,33 @@
+[package]
+name = "visible-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "visible_bridge"
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+visible-core = { path = "../visible-core" }
+coven = { git = "https://github.com/bae-fm/coven", rev = "8b4e03d5ea3fcf25b8bbb93e5f207623a037c4a0" }
+uniffi = { version = "0.31", features = ["cli"] }
+tokio = { version = "1.0", features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+tracing-oslog = "0.3"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+tracing-oslog = "0.3"
+
+[target.'cfg(target_os = "android")'.dependencies]
+tracing-android = "0.2"
+
+[lints.rust]
+unexpected_cfgs = "allow"
