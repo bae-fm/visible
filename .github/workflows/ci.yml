@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: Test
+    runs-on: macos-26
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+
+    - name: Check Rust formatting
+      run: cargo fmt --all -- --check
+
+    - name: Run Clippy
+      run: |
+        cargo clippy --workspace -- -D warnings
+        cargo clippy -p visible-core --tests --features visible-core/test-utils -- -D warnings
+
+    - name: Build workspace
+      run: cargo build --workspace
+
+    - name: Run tests
+      run: cargo test -p visible-core --features visible-core/test-utils
