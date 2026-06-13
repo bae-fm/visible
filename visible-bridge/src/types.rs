@@ -2,7 +2,7 @@
 //! see, and the conversions from visible-core's domain types. Type translation
 //! only — no logic.
 
-use visible_core::{CoreError, Node};
+use visible_core::{CoreError, LibraryInfo, Node};
 
 /// A node as the UI consumes it. No `position` — the bridge returns children
 /// already ordered, so the UI iterates in order rather than re-sorting.
@@ -30,6 +30,15 @@ impl From<Node> for BridgeNode {
 pub struct BridgeLibrary {
     pub id: String,
     pub name: String,
+}
+
+impl From<LibraryInfo> for BridgeLibrary {
+    fn from(info: LibraryInfo) -> Self {
+        Self {
+            id: info.id,
+            name: info.name,
+        }
+    }
 }
 
 /// The error surface the generated Swift/Kotlin throw and switch on.

@@ -1,26 +1,34 @@
 //! App initialization: open a library and build its [`AppHandle`].
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use visible_core::app::{bootstrap, RunningApp};
+use visible_core::app::bootstrap;
 
 use crate::handle::AppHandle;
 use crate::types::BridgeError;
 
 #[uniffi::export]
-pub fn init_app(library_id: String) -> Result<Arc<AppHandle>, BridgeError> {
+pub fn init_app(data_dir: String, library_id: String) -> Result<Arc<AppHandle>, BridgeError> {
     configure_logging();
 
-    let RunningApp { runtime, inventory } = bootstrap(library_id)?;
-
-    Ok(Arc::new(AppHandle { runtime, inventory }))
+    Ok(Arc::new(AppHandle {
+        app: bootstrap(&PathBuf::from(data_dir), library_id)?,
+    }))
 }
 
 /// Build an `EnvFilter` from `RUST_LOG`, defaulting to "info" when the variable
-/// is unset, and warning to stderr when it is set but malformed.
+/// is unset, and warning to stderr when it is set but unreadable or malformed.
 fn env_filter() -> tracing_subscriber::EnvFilter {
     match std::env::var("RUST_LOG") {
-        Err(_) => tracing_subscriber::EnvFilter::new("info"),
+        // Unset is the normal case — default silently.
+        Err(std::env::VarError::NotPresent) => tracing_subscriber::EnvFilter::new("info"),
+        // Present but not UTF-8: a real misconfiguration. The logger isn't up
+        // yet, so stderr is the only sink.
+        Err(std::env::VarError::NotUnicode(_)) => {
+            eprintln!("warning: RUST_LOG is not valid UTF-8, falling back to \"info\"");
+            tracing_subscriber::EnvFilter::new("info")
+        }
         Ok(val) => tracing_subscriber::EnvFilter::try_new(&val).unwrap_or_else(|e| {
             eprintln!("warning: RUST_LOG={val:?} is malformed ({e}), falling back to \"info\"");
             tracing_subscriber::EnvFilter::new("info")

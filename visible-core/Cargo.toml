@@ -9,25 +9,14 @@ path = "src/lib.rs"
 
 [dependencies]
 coven = { git = "https://github.com/bae-fm/coven", rev = "8b4e03d5ea3fcf25b8bbb93e5f207623a037c4a0" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 serde_yaml = "0.9"
 tokio = { version = "1.0", features = ["full"] }
 thiserror = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
-chrono = { version = "0.4", features = ["serde"] }
-dirs = "6.0"
 tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.8"
 tokio = { version = "1.0", features = ["test-util"] }
-serial_test = "3.4.0"
 # coven's deterministic id fake for visible-core's tests (off in production builds).
 coven = { git = "https://github.com/bae-fm/coven", rev = "8b4e03d5ea3fcf25b8bbb93e5f207623a037c4a0", features = ["test-utils"] }
-
-[features]
-default = []
-# Forwards coven's test-utils so visible-core's own tests get the re-exported
-# deterministic id/clock fakes.
-test-utils = ["coven/test-utils"]

@@ -1,68 +1,60 @@
 //! Tests the real library lifecycle (`create` / `discover` / `open_config`)
-//! against a redirected `$HOME`, plus `bootstrap` opening the created library
-//! and finding its root. `$HOME` is process-global, so these run serially.
+//! against a temp data dir, plus `bootstrap` opening the created library and
+//! finding its root.
 
 use coven::id_provider::SequentialIdProvider;
-use serial_test::serial;
 use tempfile::TempDir;
 use visible_core::app::bootstrap;
 use visible_core::library::{create, create_default, discover, open_config};
 
-/// Point `$HOME` at a fresh temp dir for the duration of one test, so
-/// `data_dir()` resolves under it. Returns the guard dir, which must outlive the
-/// test body.
-fn with_temp_home() -> TempDir {
-    let temp = TempDir::new().expect("temp home");
-    std::env::set_var("HOME", temp.path());
-    temp
-}
-
 #[test]
-#[serial]
 fn create_then_discover_finds_the_library() {
-    let _home = with_temp_home();
+    let data_dir = TempDir::new().expect("temp data dir");
     let ids = SequentialIdProvider::new("lib");
 
-    let info = create("Garage Sale".to_string(), &ids).expect("create");
+    let info = create(data_dir.path(), "Garage Sale".to_string(), &ids).expect("create");
     assert_eq!(info.name, "Garage Sale");
 
-    let found = discover();
+    let found = discover(data_dir.path()).expect("discover");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].id, info.id);
     assert_eq!(found[0].name, "Garage Sale");
 }
 
 #[test]
-#[serial]
-fn create_default_names_the_library_home() {
-    let _home = with_temp_home();
-    let ids = SequentialIdProvider::new("lib");
+fn discover_on_missing_data_dir_is_empty() {
+    let data_dir = TempDir::new().expect("temp data dir");
+    let found = discover(data_dir.path()).expect("discover");
+    assert!(found.is_empty());
+}
 
-    let info = create_default(&ids).expect("create default");
+#[test]
+fn create_default_names_the_library_home() {
+    let data_dir = TempDir::new().expect("temp data dir");
+
+    let info = create_default(data_dir.path()).expect("create default");
     assert_eq!(info.name, "Home");
 }
 
 #[test]
-#[serial]
 fn open_config_reads_back_the_device_id() {
-    let _home = with_temp_home();
+    let data_dir = TempDir::new().expect("temp data dir");
     let ids = SequentialIdProvider::new("lib");
 
-    let info = create("Place".to_string(), &ids).expect("create");
-    let config = open_config(&info.id).expect("open config");
+    let info = create(data_dir.path(), "Place".to_string(), &ids).expect("create");
+    let config = open_config(data_dir.path(), &info.id).expect("open config");
     assert_eq!(config.library_id, info.id);
     assert_eq!(config.library_name, "Place");
     assert!(!config.device_id.is_empty());
 }
 
 #[test]
-#[serial]
 fn bootstrap_opens_the_created_library_with_its_root() {
-    let _home = with_temp_home();
+    let data_dir = TempDir::new().expect("temp data dir");
     let ids = SequentialIdProvider::new("lib");
 
-    let info = create("Place".to_string(), &ids).expect("create");
-    let app = bootstrap(info.id).expect("bootstrap");
+    let info = create(data_dir.path(), "Place".to_string(), &ids).expect("create");
+    let app = bootstrap(data_dir.path(), info.id).expect("bootstrap");
 
     let root = app
         .runtime

@@ -9,7 +9,6 @@ pub mod app;
 pub mod error;
 pub mod library;
 pub mod node;
-pub mod paths;
 
 pub use app::RunningApp;
 pub use error::CoreError;

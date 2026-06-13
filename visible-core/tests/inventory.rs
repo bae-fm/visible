@@ -2,10 +2,10 @@
 //! directory — the production unit, not a reconstruction.
 
 use coven::library_dir::LibraryDir;
-use coven::sync::session::SyncedTable;
 use coven::{Database, UpdatedAtStamper};
 use tempfile::TempDir;
-use visible_core::node::{insert_root, SCHEMA};
+use visible_core::app::open_database;
+use visible_core::node::insert_root;
 use visible_core::Inventory;
 
 /// Open a real database on a fresh temp library dir, lay down the schema and a
@@ -17,13 +17,7 @@ async fn open_inventory() -> (Inventory, TempDir) {
     let dir = LibraryDir::new(temp.path().join("library"));
     std::fs::create_dir_all(&*dir).expect("create library dir");
 
-    let (db, stamper) = Database::open(
-        &dir.db_path(),
-        vec![SyncedTable::new("nodes")],
-        "test-device".to_string(),
-        |conn| conn.execute_batch(SCHEMA).map_err(Into::into),
-    )
-    .expect("open database");
+    let (db, stamper) = open_database(&dir, "test-device".to_string()).expect("open database");
 
     seed_root(&db, &stamper).await;
 
@@ -32,11 +26,9 @@ async fn open_inventory() -> (Inventory, TempDir) {
 
 async fn seed_root(db: &Database, stamper: &UpdatedAtStamper) {
     let updated_at = stamper.stamp();
-    db.call(move |conn| {
-        insert_root(conn, "root", "Home", "2026-01-01T00:00:00Z", &updated_at).map_err(Into::into)
-    })
-    .await
-    .expect("seed root");
+    db.call(move |conn| insert_root(conn, "root", "Home", &updated_at).map_err(Into::into))
+        .await
+        .expect("seed root");
 }
 
 #[tokio::test]
