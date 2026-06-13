@@ -7,7 +7,7 @@
 use coven::library_dir::LibraryDir;
 use coven::rusqlite::{params, Connection, OptionalExtension, Row};
 use coven::{Database, UpdatedAtStamper};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::error::CoreError;
 
@@ -21,12 +21,11 @@ pub struct Node {
     pub name: String,
     pub position: i64,
     pub image_id: Option<String>,
-    pub created_at: String,
 }
 
 impl Node {
-    /// Read a node from a row selecting `id, parent_id, name, position, image_id,
-    /// created_at` in that order.
+    /// Read a node from a row selecting `id, parent_id, name, position, image_id`
+    /// in that order.
     fn from_row(row: &Row<'_>) -> coven::rusqlite::Result<Node> {
         Ok(Node {
             id: row.get(0)?,
@@ -34,13 +33,12 @@ impl Node {
             name: row.get(2)?,
             position: row.get(3)?,
             image_id: row.get(4)?,
-            created_at: row.get(5)?,
         })
     }
 }
 
 /// The columns every node read selects, in the order [`Node::from_row`] expects.
-const NODE_COLUMNS: &str = "id, parent_id, name, position, image_id, created_at";
+const NODE_COLUMNS: &str = "id, parent_id, name, position, image_id";
 
 /// The live inventory for one open library: the node tree plus its image files.
 /// Holds the coven database handle (the owned SQLite connection), the register
@@ -82,12 +80,10 @@ impl Inventory {
                 let mut stmt = conn.prepare(&format!(
                     "SELECT {NODE_COLUMNS} FROM nodes WHERE parent_id = ?1 ORDER BY position"
                 ))?;
-                let rows = stmt.query_map([parent_id], Node::from_row)?;
-                let mut out = Vec::new();
-                for row in rows {
-                    out.push(row?);
-                }
-                Ok(out)
+                let nodes = stmt
+                    .query_map([parent_id], Node::from_row)?
+                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+                Ok(nodes)
             })
             .await
             .map_err(Into::into)
@@ -121,21 +117,19 @@ impl Inventory {
                 // `depth` counts hops from `id` (0) up to the root; ordering by
                 // it descending yields the root-first breadcrumb.
                 let mut stmt = conn.prepare(&format!(
-                    "WITH RECURSIVE ancestors(id, parent_id, name, position, image_id, created_at, depth) AS (
+                    "WITH RECURSIVE ancestors(id, parent_id, name, position, image_id, depth) AS (
                          SELECT {NODE_COLUMNS}, 0 FROM nodes WHERE id = ?1
                          UNION ALL
-                         SELECT n.id, n.parent_id, n.name, n.position, n.image_id, n.created_at, a.depth + 1
+                         SELECT n.id, n.parent_id, n.name, n.position, n.image_id, a.depth + 1
                          FROM nodes n
                          JOIN ancestors a ON n.id = a.parent_id
                      )
                      SELECT {NODE_COLUMNS} FROM ancestors ORDER BY depth DESC"
                 ))?;
-                let rows = stmt.query_map([id], Node::from_row)?;
-                let mut out = Vec::new();
-                for row in rows {
-                    out.push(row?);
-                }
-                Ok(out)
+                let nodes = stmt
+                    .query_map([id], Node::from_row)?
+                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+                Ok(nodes)
             })
             .await?;
         if path.is_empty() {
@@ -145,38 +139,33 @@ impl Inventory {
     }
 
     /// Append a child to `parent_id` at the end of its sibling order. The new
-    /// node gets a fresh uuid, `created_at` = now (RFC 3339), and its
-    /// `_updated_at` register stamp.
+    /// node gets a fresh uuid and its `_updated_at` register stamp.
     pub async fn create_child(&self, parent_id: &str, name: String) -> Result<Node, CoreError> {
-        let node = Node {
-            id: uuid::Uuid::new_v4().to_string(),
-            parent_id: Some(parent_id.to_string()),
-            name,
-            // `position` is filled in the write from MAX(position)+1; the value
-            // here is overwritten before the row is read back.
-            position: 0,
-            image_id: None,
-            created_at: chrono::Utc::now().to_rfc3339(),
-        };
-        let updated_at = self.stamper.stamp();
+        let id = uuid::Uuid::new_v4().to_string();
         let parent_id = parent_id.to_string();
+        let updated_at = self.stamper.stamp();
         self.db
             .call(move |conn| {
                 let position = next_position(conn, &parent_id)?;
                 conn.execute(
-                    "INSERT INTO nodes (id, parent_id, name, position, image_id, created_at, _updated_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    "INSERT INTO nodes (id, parent_id, name, position, image_id, _updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     params![
-                        node.id,
-                        node.parent_id,
-                        node.name,
+                        id,
+                        parent_id,
+                        name,
                         position,
-                        node.image_id,
-                        node.created_at,
-                        updated_at,
+                        Option::<String>::None,
+                        updated_at
                     ],
                 )?;
-                Ok(Node { position, ..node })
+                Ok(Node {
+                    id,
+                    parent_id: Some(parent_id),
+                    name,
+                    position,
+                    image_id: None,
+                })
             })
             .await
             .map_err(Into::into)
@@ -204,11 +193,13 @@ impl Inventory {
 
     /// Delete a node and its whole subtree (the `parent_id` self-FK cascades the
     /// row deletes), then remove the subtree's image files from disk. The image
-    /// ids are collected before the delete; the disk unlinks are best-effort and
-    /// a failed one is logged, not fatal (the row is already gone).
+    /// ids are collected and the rows deleted in one connection call, so no
+    /// concurrent insert can slip into the subtree between collect and delete.
+    /// The disk unlinks are best-effort and a failed one is logged, not fatal
+    /// (the row is already gone).
     pub async fn delete(&self, id: &str) -> Result<(), CoreError> {
         let id_for_delete = id.to_string();
-        let image_ids: Vec<String> = self
+        let (affected, image_ids): (usize, Vec<String>) = self
             .db
             .call(move |conn| {
                 // Walk the subtree down `parent_id`, collecting every node's
@@ -222,21 +213,11 @@ impl Inventory {
                      SELECT n.image_id FROM nodes n JOIN subtree s ON n.id = s.id \
                      WHERE n.image_id IS NOT NULL",
                 )?;
-                let rows = stmt.query_map([id_for_delete], |r| r.get::<_, String>(0))?;
-                let mut out = Vec::new();
-                for row in rows {
-                    out.push(row?);
-                }
-                Ok(out)
-            })
-            .await?;
-
-        let id_for_delete = id.to_string();
-        let affected = self
-            .db
-            .call(move |conn| {
-                conn.execute("DELETE FROM nodes WHERE id = ?1", [id_for_delete])
-                    .map_err(Into::into)
+                let image_ids = stmt
+                    .query_map([&id_for_delete], |r| r.get::<_, String>(0))?
+                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+                let affected = conn.execute("DELETE FROM nodes WHERE id = ?1", [&id_for_delete])?;
+                Ok((affected, image_ids))
             })
             .await?;
         if affected == 0 {
@@ -293,7 +274,14 @@ impl Inventory {
     /// database work.
     pub fn image_path_if_exists(&self, image_id: &str) -> Option<String> {
         let path = self.dir.image_path(image_id);
-        path.exists().then(|| path.to_string_lossy().into_owned())
+        match path.try_exists() {
+            Ok(true) => Some(path.to_string_lossy().into_owned()),
+            Ok(false) => None,
+            Err(e) => {
+                warn!(image_id, path = %path.display(), "checking image file existence failed: {e}");
+                None
+            }
+        }
     }
 
     /// Best-effort unlink of an image file. A missing file is fine (already
@@ -304,7 +292,9 @@ impl Inventory {
         let path = self.dir.image_path(image_id);
         match std::fs::remove_file(&path) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                debug!(image_id, path = %path.display(), "image file already absent during cleanup")
+            }
             Err(e) => warn!(image_id, path = %path.display(), "failed to unlink image file: {e}"),
         }
     }
@@ -331,7 +321,6 @@ CREATE TABLE IF NOT EXISTS nodes (
     name        TEXT NOT NULL,
     position    INTEGER NOT NULL,
     image_id    TEXT,
-    created_at  TEXT NOT NULL,
     _updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id, position);
@@ -344,13 +333,12 @@ pub fn insert_root(
     conn: &Connection,
     id: &str,
     name: &str,
-    created_at: &str,
     updated_at: &str,
 ) -> coven::rusqlite::Result<()> {
     conn.execute(
-        "INSERT INTO nodes (id, parent_id, name, position, image_id, created_at, _updated_at) \
-         VALUES (?1, NULL, ?2, 0, NULL, ?3, ?4)",
-        params![id, name, created_at, updated_at],
+        "INSERT INTO nodes (id, parent_id, name, position, image_id, _updated_at) \
+         VALUES (?1, NULL, ?2, 0, NULL, ?3)",
+        params![id, name, updated_at],
     )?;
     Ok(())
 }
