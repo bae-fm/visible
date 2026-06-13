@@ -202,41 +202,62 @@ impl Inventory {
     /// exactly one root, so deleting it would leave an empty library with no node
     /// to browse. NotFound if the node doesn't exist.
     pub async fn delete(&self, id: &str) -> Result<(), CoreError> {
-        let target = self
-            .get(id)
-            .await?
-            .ok_or_else(|| CoreError::NotFound(format!("no node {id} to delete")))?;
-        if target.parent_id.is_none() {
-            return Err(CoreError::Internal("cannot delete the root node".into()));
+        // The existence check, the root guard, and the delete all run in one
+        // connection call, so the row can't be seen-then-vanish between them and
+        // the DELETE always acts on the row we just validated.
+        enum Outcome {
+            NotFound,
+            IsRoot,
+            Deleted(Vec<String>),
         }
 
-        let id_for_delete = id.to_string();
-        let image_ids: Vec<String> = self
+        let id_owned = id.to_string();
+        let outcome = self
             .db
             .call(move |conn| {
-                // Walk the subtree down `parent_id`, collecting every node's
-                // image_id; the root of the walk is the node being deleted.
-                let mut stmt = conn.prepare(
-                    "WITH RECURSIVE subtree(id) AS (
-                         SELECT id FROM nodes WHERE id = ?1
-                         UNION ALL
-                         SELECT n.id FROM nodes n JOIN subtree s ON n.parent_id = s.id
-                     )
-                     SELECT n.image_id FROM nodes n JOIN subtree s ON n.id = s.id \
-                     WHERE n.image_id IS NOT NULL",
-                )?;
-                let image_ids = stmt
-                    .query_map([&id_for_delete], |r| r.get::<_, String>(0))?
-                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
-                conn.execute("DELETE FROM nodes WHERE id = ?1", [&id_for_delete])?;
-                Ok(image_ids)
+                let parent_id: Option<Option<String>> = conn
+                    .query_row(
+                        "SELECT parent_id FROM nodes WHERE id = ?1",
+                        [&id_owned],
+                        |r| r.get::<_, Option<String>>(0),
+                    )
+                    .optional()?;
+                match parent_id {
+                    None => Ok(Outcome::NotFound),
+                    Some(None) => Ok(Outcome::IsRoot),
+                    Some(Some(_)) => {
+                        // Walk the subtree down `parent_id`, collecting every
+                        // node's image_id; the root of the walk is the node being
+                        // deleted.
+                        let mut stmt = conn.prepare(
+                            "WITH RECURSIVE subtree(id) AS (
+                                 SELECT id FROM nodes WHERE id = ?1
+                                 UNION ALL
+                                 SELECT n.id FROM nodes n JOIN subtree s ON n.parent_id = s.id
+                             )
+                             SELECT n.image_id FROM nodes n JOIN subtree s ON n.id = s.id \
+                             WHERE n.image_id IS NOT NULL",
+                        )?;
+                        let image_ids = stmt
+                            .query_map([&id_owned], |r| r.get::<_, String>(0))?
+                            .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+                        conn.execute("DELETE FROM nodes WHERE id = ?1", [&id_owned])?;
+                        Ok(Outcome::Deleted(image_ids))
+                    }
+                }
             })
             .await?;
 
-        for image_id in image_ids {
-            self.remove_image_file(&image_id);
+        match outcome {
+            Outcome::NotFound => Err(CoreError::NotFound(format!("no node {id} to delete"))),
+            Outcome::IsRoot => Err(CoreError::Internal("cannot delete the root node".into())),
+            Outcome::Deleted(image_ids) => {
+                for image_id in image_ids {
+                    self.remove_image_file(&image_id);
+                }
+                Ok(())
+            }
         }
-        Ok(())
     }
 
     /// Set a node's image: write `bytes` to a fresh content-addressed file, point
