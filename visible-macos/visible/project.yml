@@ -72,12 +72,12 @@ targets:
         CODE_SIGN_ENTITLEMENTS: visible/visible.entitlements
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        # No bundled app icon yet — drop xcodegen's default `AppIcon` lookup so
-        # the asset catalog compiles without one.
+        # No bundled app icon — drop xcodegen's default `AppIcon` lookup so the
+        # asset catalog compiles without one.
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
         # The Rust staticlib pulls coven's transitive crates (rustls, aws-sdk,
-        # keyring, etc.) even though v1 never calls them, so the link step must
-        # satisfy their system dependencies.
+        # keyring, etc.), so the link step must satisfy their system
+        # dependencies even though the app never calls those crates.
         OTHER_LDFLAGS:
           - -lz
           - -liconv
