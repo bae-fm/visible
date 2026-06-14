@@ -707,7 +707,7 @@ impl Inventory {
                     params![new_image_id, updated_at, id],
                 )?;
                 if let Some(old) = &old_image_id {
-                    conn.execute("DELETE FROM node_images WHERE id = ?1", [old])?;
+                    detach_image_row(conn, old)?;
                 }
                 Ok(())
             })
@@ -754,7 +754,7 @@ impl Inventory {
                     "UPDATE nodes SET image_id = NULL, _updated_at = ?1 WHERE id = ?2",
                     params![updated_at, id],
                 )?;
-                conn.execute("DELETE FROM node_images WHERE id = ?1", [&row_image_id])?;
+                detach_image_row(conn, &row_image_id)?;
                 Ok(())
             })
             .await?;
@@ -919,6 +919,18 @@ fn insert_node_image(
         "INSERT INTO node_images (id, node_id, _updated_at) VALUES (?1, ?2, ?3)",
         params![image_id, node_id, updated_at],
     )?;
+    Ok(())
+}
+
+/// Delete the old image's immutable `node_images` row when a node's image is
+/// replaced ([`Inventory::set_image`]) or cleared ([`Inventory::clear_image`]).
+/// The DELETE is what carries the removal to peers over coven's changeset
+/// channel; the matching local file and cloud blob are removed after the
+/// connection call by [`Inventory::remove_image_blob`]. Run inside the same
+/// connection call as the node UPDATE so the re-point and the row delete commit
+/// together.
+fn detach_image_row(conn: &Connection, old_image_id: &str) -> coven::rusqlite::Result<()> {
+    conn.execute("DELETE FROM node_images WHERE id = ?1", [old_image_id])?;
     Ok(())
 }
 
