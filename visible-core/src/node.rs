@@ -63,16 +63,15 @@ impl Node {
 /// The columns every node read selects, in the order [`Node::from_row`] expects.
 const NODE_COLUMNS: &str = "id, parent_id, name, position, image_id";
 
-/// The cloud namespace images live under, matching [`crate::blob_plan`].
-const IMAGE_NAMESPACE: &str = "images";
-
 /// The cloud key for an image blob: `images/{ab}/{cd}/{image_id}`. coven's blob
 /// layout and cloud outbox use the same content-addressed key, so the changeset
 /// channel upload of a `node_images` INSERT and the outbox delete of the same
 /// image name the same object. The single home for this key, called by the
-/// delete path here and by the integration tests asserting outbox intents.
+/// delete path here and by the integration tests asserting outbox intents. The
+/// namespace is shared with the push/pull path in [`crate::blob_plan`] so the two
+/// can't drift.
 pub fn image_cloud_key(image_id: &str) -> String {
-    LibraryDir::hashed_path(IMAGE_NAMESPACE, image_id)
+    LibraryDir::hashed_path(crate::blob_plan::IMAGE_NAMESPACE, image_id)
 }
 
 /// The live inventory for one open library: the node tree plus its image files.

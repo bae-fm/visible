@@ -26,6 +26,12 @@ use tracing::warn;
 /// image id).
 const NODE_IMAGES_TABLE: &str = "node_images";
 
+/// The cloud namespace image blobs live under (`images/{ab}/{cd}/{image_id}`).
+/// The single home for this name: the push/pull path here and the outbox
+/// delete-key path in [`crate::node`] both use it, so the changeset upload and
+/// the delete name the same cloud object.
+pub const IMAGE_NAMESPACE: &str = "images";
+
 /// Maps visible's `node_images` rows to their cloud blobs.
 pub struct NodeBlobPlan {
     dir: LibraryDir,
@@ -41,7 +47,7 @@ impl NodeBlobPlan {
     /// content-addressed file at [`LibraryDir::image_path`].
     fn image_ref(&self, image_id: &str) -> BlobRef {
         BlobRef {
-            namespace: "images".to_string(),
+            namespace: IMAGE_NAMESPACE.to_string(),
             id: image_id.to_string(),
             local_path: self.dir.image_path(image_id),
             scope: BlobScope::Master,

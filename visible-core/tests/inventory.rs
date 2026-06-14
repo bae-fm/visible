@@ -25,8 +25,8 @@ async fn open_inventory() -> (Inventory, TempDir) {
 }
 
 /// Like [`open_inventory`] but also returns the database handle, so a test can
-/// read coven's cloud outbox to assert the image upload/delete intents the node
-/// writes enqueue.
+/// read coven's cloud outbox to assert the image delete intents the node writes
+/// enqueue.
 async fn open_inventory_with_db() -> (Inventory, Database, TempDir) {
     let temp = TempDir::new().expect("temp dir");
     let dir = LibraryDir::new(temp.path().join("library"));

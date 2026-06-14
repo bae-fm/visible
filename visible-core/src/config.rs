@@ -75,7 +75,7 @@ pub fn init_keyring() {
 /// and kept for the rest of the process. Replacing it on a later call would wipe
 /// entries other parallel tests already wrote (one process-global namespace);
 /// entries stay isolated by library id instead.
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 pub fn install_test_keyring() {
     use std::sync::Once;
     static INIT: Once = Once::new();

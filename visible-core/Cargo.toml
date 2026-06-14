@@ -7,13 +7,6 @@ edition = "2021"
 name = "visible_core"
 path = "src/lib.rs"
 
-[features]
-# Exposes the in-memory test keyring (`config::install_test_keyring`) and
-# forwards coven's deterministic id/clock fakes, for tests of crates that build
-# on visible-core. visible-core's own unit/integration tests reach the fakes
-# through the dev-dependency on coven, which already enables `coven/test-utils`.
-test-utils = ["coven/test-utils"]
-
 [dependencies]
 coven = { git = "https://github.com/bae-fm/coven", rev = "8b4e03d5ea3fcf25b8bbb93e5f207623a037c4a0" }
 serde_yaml = "0.9"

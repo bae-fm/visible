@@ -173,11 +173,8 @@ impl Sync {
         // is worth surfacing — the configured library will look idle until the
         // cloud is reachable again (parity with ensure_manager_and_start).
         if !manager.is_sync_ready() {
-            let config = self.config.read().unwrap();
-            warn!(
-                provider = ?config.cloud_home.provider,
-                s3_bucket = ?config.cloud_home.s3_bucket,
-                "sync loop did not start on launch resume; will retry on the next trigger or reconnect"
+            self.warn_sync_not_ready(
+                "on launch resume; will retry on the next trigger or reconnect",
             );
         }
         *self.manager.write().unwrap() = Some(manager.clone());
@@ -221,12 +218,9 @@ impl Sync {
             config.encryption_key_fingerprint = Some(fingerprint);
             config.save()?;
         } else {
-            let config = self.config.read().unwrap();
-            warn!(
-                provider = ?config.cloud_home.provider,
-                s3_bucket = ?config.cloud_home.s3_bucket,
-                "sync loop did not start after connect; encryption-key fingerprint not recorded \
-                 — the next connect attempt will retry from a clean state"
+            self.warn_sync_not_ready(
+                "after connect; encryption-key fingerprint not recorded — the next connect \
+                 attempt will retry from a clean state",
             );
         }
 
@@ -234,13 +228,25 @@ impl Sync {
         Ok(())
     }
 
+    /// Warn that `start_sync` did not bring the loop up, with the provider and
+    /// bucket for context. `context` says where the resume/connect happened and
+    /// what recovers it. Called from both the launch-resume and connect paths.
+    fn warn_sync_not_ready(&self, context: &str) {
+        let config = self.config.read().unwrap();
+        warn!(
+            provider = ?config.cloud_home.provider,
+            s3_bucket = ?config.cloud_home.s3_bucket,
+            "sync loop did not start {context}"
+        );
+    }
+
     /// Build coven's [`SyncManager`] from an unlocked encryption service. The
     /// config provider clones the live in-memory config each call, so coven sees
     /// connect/disconnect without the manager being rebuilt. The manager takes
     /// the shared [`Database`] directly (visible holds coven's database, not a
     /// wrapper) and reads the register clock from it; the wall [`ClockRef`] drives
-    /// `created_at`/expiry comparisons. No upload observer — visible has no
-    /// per-file progress UI yet, and the outbox drains regardless.
+    /// `created_at`/expiry comparisons. No upload observer is passed; the outbox
+    /// drains without one.
     fn build_manager(&self, encryption: EncryptionService) -> SyncManager {
         // The provider clones the live config each call, so connect/disconnect is
         // reflected without rebuilding the manager. It shares this service's
@@ -329,15 +335,9 @@ mod tests {
 
         let (db, _stamper) = Database::open(
             &dir.db_path(),
-            vec![SyncedTable::new("nodes")],
+            vec![SyncedTable::new("nodes"), SyncedTable::new("node_images")],
             "device".to_string(),
-            |conn| {
-                conn.execute_batch(
-                    "CREATE TABLE nodes (id TEXT PRIMARY KEY NOT NULL, image_id TEXT, \
-                     _updated_at TEXT NOT NULL);",
-                )
-                .map_err(Into::into)
-            },
+            |conn| conn.execute_batch(crate::node::SCHEMA).map_err(Into::into),
         )
         .unwrap();
 
