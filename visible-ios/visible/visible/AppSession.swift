@@ -3,9 +3,14 @@ import os.log
 
 private let logger = Logger.visible("AppSession")
 
-/// The app-root lifecycle: the session is opening, failed to open, or open.
+/// The app-root lifecycle: opening, no library yet (first run), failed to open,
+/// or open.
 enum SessionState {
     case loading
+    /// No library on this device yet — the onboarding Welcome screen creates or
+    /// joins the first home. Reached only on first run; once a home exists the
+    /// session never returns here (switching homes replaces in place).
+    case onboarding
     case failed(String)
     /// The open library: its handle and the id of its root house node.
     case open(handle: AppHandle, rootId: String)
@@ -13,11 +18,14 @@ enum SessionState {
 
 /// Holds the one ``AppHandle`` for the process and publishes the current
 /// ``SessionState`` for the root view to render. On first open it discovers the
-/// library under the app's private data dir (creating the default one if none
-/// exists), opens it, and reads the root node id. Joining or restoring a home
-/// replaces the open library in place — a single active home — via
-/// ``switchToHome(_:)``. A failure is published as ``state`` without disturbing
-/// the open library, so the user can retry.
+/// library under the app's private data dir; if one exists it opens it and reads
+/// the root node id, and if none exists it publishes ``SessionState/onboarding``
+/// for the Welcome screen to create or join the first home (it never auto-creates
+/// a home). Creating, joining, or restoring a home all go through
+/// ``switchToHome(_:)``, which opens the new library before removing the old one —
+/// a single active home — so a failure never strands the user. A failure is
+/// published as ``state`` without disturbing the open library, so the user can
+/// retry.
 @MainActor
 @Observable
 final class AppSession {
@@ -47,13 +55,16 @@ final class AppSession {
             return
         }
 
-        let opened = await Task.detached { () -> Result<(AppHandle, String, String), Error> in
+        let opened = await Task.detached { () -> Result<(AppHandle, String, String)?, Error> in
             do {
                 // Install the keyring before anything reads it — cloud sync stores
                 // the identity keypair and the per-library encryption key there.
                 initKeyring()
-                let library = try discoverLibraries(dataDir: dataDir).first
-                    ?? createLibrary(dataDir: dataDir)
+                // First run has no library: nil tells the caller to onboard rather
+                // than auto-creating a home.
+                guard let library = try discoverLibraries(dataDir: dataDir).first else {
+                    return .success(nil)
+                }
                 let handle = try initApp(dataDir: dataDir, libraryId: library.id)
                 return .success((handle, try handle.rootNode().id, library.id))
             } catch {
@@ -62,30 +73,48 @@ final class AppSession {
         }.value
 
         switch opened {
-        case let .success((handle, rootId, libraryId)):
+        case let .success(.some((handle, rootId, libraryId))):
             current = (handle, rootId, libraryId)
             state = .open(handle: handle, rootId: rootId)
+        case .success(.none):
+            state = .onboarding
         case let .failure(error):
             logger.error("opening library failed: \(error.localizedDescription, privacy: .public)")
             state = .failed(error.localizedDescription)
         }
     }
 
-    /// Switch the active library to a home the user joined or restored: write the
-    /// new library to disk (the joiner-side `join_library_from_invite` /
-    /// `restore_library_from_code` call), open it, then remove the previously open
-    /// library — a single active home. Returns nil on success or the failure
-    /// message; on failure ``state`` and the open library are unchanged.
+    /// Create the first home (onboarding "create a home"). No prior library to
+    /// remove. Returns nil on success or the failure message.
+    func createHome(name: String) async -> String? {
+        await switchToHome(.create(name))
+    }
+
+    /// Join the first home from an invite code (onboarding "join a home"). No
+    /// prior library to remove. Returns nil on success or the failure message.
+    func joinHome(code: String) async -> String? {
+        await switchToHome(.join(code))
+    }
+
+    /// Restore the first home from a restore code (onboarding "restore a home").
+    /// No prior library to remove. Returns nil on success or the failure message.
+    func restoreHome(code: String) async -> String? {
+        await switchToHome(.restore(code))
+    }
+
+    /// Make `source`'s home the active one: write the new library to disk (create
+    /// a fresh local home, or the joiner-side `join_library_from_invite` /
+    /// `restore_library_from_code` download), open it, then remove the previously
+    /// open library if there was one — a single active home. Drives both
+    /// onboarding (no prior home) and the settings/sharing switch (replacing the
+    /// current home). Returns nil on success or the failure message; on failure
+    /// ``state`` and any open library are unchanged.
     ///
     /// Order matters: write and open the new library FIRST, and only remove the
     /// old one once the new handle is in hand, so a failed write or open leaves
     /// the old library intact and nothing is removed.
     func switchToHome(_ source: HomeSwitch) async -> String? {
-        guard let previous = current else {
-            // open() must have run before any sharing action is reachable.
-            logger.error("switchToHome called before the session was open")
-            return "The current home isn't open yet."
-        }
+        let previous = current
 
         let dataDir: String
         do {
@@ -100,8 +129,11 @@ final class AppSession {
                 let library = try source.writeLibrary(dataDir: dataDir)
                 let handle = try initApp(dataDir: dataDir, libraryId: library.id)
                 let rootId = try handle.rootNode().id
-                // The new library is open; dropping the old one can't strand us.
-                try removeLibrary(dataDir: dataDir, libraryId: previous.libraryId)
+                // The new library is open; dropping the old one (if any) can't
+                // strand us.
+                if let previous {
+                    try removeLibrary(dataDir: dataDir, libraryId: previous.libraryId)
+                }
                 return .success((handle, rootId, library.id))
             } catch {
                 return .failure(error)

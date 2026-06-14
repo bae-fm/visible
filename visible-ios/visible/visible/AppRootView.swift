@@ -11,6 +11,8 @@ struct AppRootView: View {
             switch session.state {
             case .loading:
                 ProgressView()
+            case .onboarding:
+                WelcomeView(session: session)
             case let .failed(message):
                 VStack(spacing: 16) {
                     Text(message)

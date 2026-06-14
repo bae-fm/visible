@@ -85,6 +85,15 @@ fun AppRoot(session: AppSession) {
 
     when (val s = state) {
         is SessionState.Loading -> CenteredMessage { CircularProgressIndicator() }
+        is SessionState.Onboarding -> {
+            val appContext = LocalContext.current.applicationContext
+            val viewModel: WelcomeViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { WelcomeViewModel(session, appContext) }
+                },
+            )
+            WelcomeScreen(viewModel = viewModel)
+        }
         is SessionState.Failed -> CenteredMessage {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,

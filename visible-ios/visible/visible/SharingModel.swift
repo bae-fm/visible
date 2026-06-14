@@ -250,17 +250,21 @@ final class SharingModel {
     }
 }
 
-/// A pending home switch the user is confirming: joining from an invite code, or
-/// restoring from a restore code. Both replace the current home on this device.
+/// A home to make active, replacing the current one if there is one: a fresh
+/// local home with a name, a home joined from an invite code, or a home restored
+/// from a restore code. Drives both onboarding (the first home) and the
+/// settings/sharing switch (replacing the current home on this device).
 enum HomeSwitch {
+    case create(String)
     case join(String)
     case restore(String)
 
-    /// Write the new library to disk via the joiner-side core call for this
-    /// source, returning its identity for the session to open. Runs off the main
-    /// actor inside ``AppSession/switchToHome(_:)``.
+    /// Write the new library to disk via the core call for this source, returning
+    /// its identity for the session to open. Runs off the main actor inside
+    /// ``AppSession/switchToHome(_:)``.
     func writeLibrary(dataDir: String) throws -> BridgeLibrary {
         switch self {
+        case let .create(name): try createLibrary(dataDir: dataDir, name: name)
         case let .join(code): try joinLibraryFromInvite(dataDir: dataDir, inviteCode: code)
         case let .restore(code): try restoreLibraryFromCode(dataDir: dataDir, restoreCode: code)
         }
@@ -269,6 +273,7 @@ enum HomeSwitch {
     /// A label for the log line on failure, naming the operation without the code.
     var logLabel: String {
         switch self {
+        case .create: "creating a new home"
         case .join: "joining from invite code"
         case .restore: "restoring from restore code"
         }

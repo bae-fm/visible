@@ -15,7 +15,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,7 +29,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -251,16 +249,6 @@ private fun JoinOrRestoreSection(viewModel: SharingViewModel) {
     }
 }
 
-/** A titled section: the header label, a divider, then the section content. */
-@Composable
-private fun SectionColumn(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = title, style = MaterialTheme.typography.titleMedium)
-        HorizontalDivider()
-        content()
-    }
-}
-
 /** One member row: the shortened pubkey, the role, a "(this device)" marker, and
  * a Remove button when the owner can remove this member. */
 @Composable
@@ -308,20 +296,3 @@ private fun RolePicker(viewModel: SharingViewModel) {
     }
 }
 
-/** A labelled, monospace code with Copy and Share actions. */
-@Composable
-private fun CodeBlock(label: String, code: String) {
-    val context = LocalContext.current
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(text = code, fontFamily = FontFamily.Monospace)
-        Row {
-            TextButton(onClick = { ShareActions.copy(context, label, code) }) { Text("Copy") }
-            TextButton(onClick = { ShareActions.share(context, code) }) { Text("Share") }
-        }
-    }
-}

@@ -21,6 +21,9 @@ targets:
       - path: ../../visible-ios/visible/visible/visibleApp.swift
       - path: ../../visible-ios/visible/visible/AppRootView.swift
       - path: ../../visible-ios/visible/visible/AppSession.swift
+      - path: ../../visible-ios/visible/visible/WelcomeView.swift
+      - path: ../../visible-ios/visible/visible/WelcomeModel.swift
+      - path: ../../visible-ios/visible/visible/CodeRow.swift
       - path: ../../visible-ios/visible/visible/BridgeWrite.swift
       - path: ../../visible-ios/visible/visible/BrowseModel.swift
       - path: ../../visible-ios/visible/visible/BrowseView.swift

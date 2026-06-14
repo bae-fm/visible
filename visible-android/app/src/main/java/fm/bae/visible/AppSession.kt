@@ -19,9 +19,19 @@ import uniffi.visible_bridge.restoreLibraryFromCode
 
 private const val TAG = "visible.AppSession"
 
-/** The app-root lifecycle: the session is opening, failed to open, or open. */
+/**
+ * The app-root lifecycle: opening, no library yet (first run), failed to open, or
+ * open.
+ */
 sealed interface SessionState {
     data object Loading : SessionState
+
+    /**
+     * No library on this device yet — the onboarding Welcome screen creates or
+     * joins the first home. Reached only on first run; once a home exists the
+     * session never returns here (switching homes replaces in place).
+     */
+    data object Onboarding : SessionState
 
     data class Failed(val message: String) : SessionState
 
@@ -30,20 +40,25 @@ sealed interface SessionState {
 }
 
 /**
- * A pending home switch the user is confirming: joining from an invite code, or
- * restoring from a restore code. Both replace the current home on this device.
+ * A home to make active, replacing the current one if there is one: a fresh local
+ * home with a name, a home joined from an invite code, or a home restored from a
+ * restore code. Drives both onboarding (the first home) and the settings/sharing
+ * switch (replacing the current home on this device).
  */
 sealed interface HomeSwitch {
+    data class Create(val name: String) : HomeSwitch
+
     data class Join(val inviteCode: String) : HomeSwitch
 
     data class Restore(val restoreCode: String) : HomeSwitch
 
     /**
-     * Write the new library to disk via the joiner-side core call for this
-     * source, returning its identity for the session to open. Runs off-main
-     * inside [AppSession.switchToHome].
+     * Write the new library to disk via the core call for this source, returning
+     * its identity for the session to open. Runs off-main inside
+     * [AppSession.switchToHome].
      */
     fun writeLibrary(dataDir: String): BridgeLibrary = when (this) {
+        is Create -> createLibrary(dataDir, name)
         is Join -> joinLibraryFromInvite(dataDir, inviteCode)
         is Restore -> restoreLibraryFromCode(dataDir, restoreCode)
     }
@@ -51,6 +66,7 @@ sealed interface HomeSwitch {
     /** A label for the log line on failure, naming the operation without the code. */
     val logLabel: String
         get() = when (this) {
+            is Create -> "creating a new home"
             is Join -> "joining from invite code"
             is Restore -> "restoring from restore code"
         }
@@ -59,11 +75,13 @@ sealed interface HomeSwitch {
 /**
  * Holds the one [AppHandle] for the process and publishes the current
  * [SessionState] for the root view to render. On first open it discovers the
- * library under the app's private data dir (creating the default one if none
- * exists), opens it, and reads the root node id. Joining or restoring a home
- * replaces the open library in place — a single active home — via [switchToHome].
- * A [SessionState.Failed] is published without disturbing the open library, so
- * the user can retry.
+ * library under the app's private data dir; if one exists it opens it and reads
+ * the root node id, and if none exists it publishes [SessionState.Onboarding] for
+ * the Welcome screen to create or join the first home (it never auto-creates a
+ * home). Creating, joining, or restoring a home all go through [switchToHome],
+ * which opens the new library before removing the old one — a single active home —
+ * so a failure never strands the user. A [SessionState.Failed] is published
+ * without disturbing the open library, so the user can retry.
  */
 class AppSession {
     private val _state = MutableStateFlow<SessionState>(SessionState.Loading)
@@ -80,9 +98,10 @@ class AppSession {
     /**
      * Open the library and publish the resulting [SessionState]. The bridge calls
      * touch SQLite, so they run on [Dispatchers.IO]; reuse the already open
-     * session on a re-entry (e.g. a retry after a transient failure). A
-     * [SessionState.Failed] is never cached, so the root view's Retry calls this
-     * again.
+     * session on a re-entry (e.g. a retry after a transient failure). On first run
+     * (no library on disk) it publishes [SessionState.Onboarding] rather than
+     * auto-creating a home. A [SessionState.Failed] is never cached, so the root
+     * view's Retry calls this again.
      */
     suspend fun open(context: Context) {
         current?.let {
@@ -94,11 +113,14 @@ class AppSession {
         _state.value = withContext(Dispatchers.IO) {
             try {
                 val library = discoverLibraries(dataDir).firstOrNull()
-                    ?: createLibrary(dataDir)
-                val handle = initApp(dataDir, library.id)
-                val rootId = handle.rootNode().id
-                current = Current(handle, rootId, library.id)
-                SessionState.Open(handle, rootId)
+                if (library == null) {
+                    SessionState.Onboarding
+                } else {
+                    val handle = initApp(dataDir, library.id)
+                    val rootId = handle.rootNode().id
+                    current = Current(handle, rootId, library.id)
+                    SessionState.Open(handle, rootId)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -108,11 +130,28 @@ class AppSession {
         }
     }
 
+    /** Create the first home (onboarding "create a home"). No prior library to
+     * remove. Returns null on success or the failure message. */
+    suspend fun createHome(context: Context, name: String): String? =
+        switchToHome(context, HomeSwitch.Create(name))
+
+    /** Join the first home from an invite code (onboarding "join a home"). No
+     * prior library to remove. Returns null on success or the failure message. */
+    suspend fun joinHome(context: Context, code: String): String? =
+        switchToHome(context, HomeSwitch.Join(code))
+
+    /** Restore the first home from a restore code (onboarding "restore a home").
+     * No prior library to remove. Returns null on success or the failure message. */
+    suspend fun restoreHome(context: Context, code: String): String? =
+        switchToHome(context, HomeSwitch.Restore(code))
+
     /**
-     * Switch the active library to a home the user joined or restored: write the
-     * new library to disk (the joiner-side call), open it, then remove the
-     * previously open library — a single active home. Returns null on success or
-     * the failure message; on failure [state] and the open library are unchanged.
+     * Make [source]'s home the active one: write the new library to disk (create a
+     * fresh local home, or the joiner-side download), open it, then remove the
+     * previously open library if there was one — a single active home. Drives both
+     * onboarding (no prior home) and the settings/sharing switch (replacing the
+     * current home). Returns null on success or the failure message; on failure
+     * [state] and any open library are unchanged.
      *
      * Order matters: write and open the new library FIRST, and only remove the old
      * one once the new handle is in hand, so a failed write or open leaves the old
@@ -120,11 +159,6 @@ class AppSession {
      */
     suspend fun switchToHome(context: Context, source: HomeSwitch): String? {
         val previous = current
-        if (previous == null) {
-            // open() must have run before any sharing action is reachable.
-            Log.e(TAG, "switchToHome called before the session was open")
-            return "The current home isn't open yet."
-        }
 
         val dataDir = context.filesDir.absolutePath
         return withContext(Dispatchers.IO) {
@@ -132,8 +166,11 @@ class AppSession {
                 val library = source.writeLibrary(dataDir)
                 val handle = initApp(dataDir, library.id)
                 val rootId = handle.rootNode().id
-                // The new library is open; dropping the old one can't strand us.
-                removeLibrary(dataDir, previous.libraryId)
+                // The new library is open; dropping the old one (if any) can't
+                // strand us.
+                if (previous != null) {
+                    removeLibrary(dataDir, previous.libraryId)
+                }
                 current = Current(handle, rootId, library.id)
                 _state.value = SessionState.Open(handle, rootId)
                 null
