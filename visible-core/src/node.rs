@@ -726,6 +726,43 @@ impl Inventory {
         Ok(())
     }
 
+    /// Clear a node's image: null its `image_id` and delete the old
+    /// `node_images` row in one connection call, then unlink the old file and
+    /// enqueue its cloud blob for deletion (best-effort, after the row is gone).
+    /// This is the old-image cleanup half of [`Inventory::set_image`] with no
+    /// replacement inserted — the row DELETE is what carries the removal to peers
+    /// over coven's changeset channel. A node with no image is nothing to clear,
+    /// so it returns `Ok(())` with a `debug!`. NotFound if the node doesn't
+    /// exist.
+    pub async fn clear_image(&self, id: &str) -> Result<(), CoreError> {
+        let existing = self
+            .get(id)
+            .await?
+            .ok_or_else(|| CoreError::NotFound(format!("no node {id} for clear_image")))?;
+
+        let Some(old_image_id) = existing.image_id else {
+            debug!(node_id = id, "node has no image to clear");
+            return Ok(());
+        };
+
+        let updated_at = self.stamper.stamp();
+        let id = id.to_string();
+        let row_image_id = old_image_id.clone();
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "UPDATE nodes SET image_id = NULL, _updated_at = ?1 WHERE id = ?2",
+                    params![updated_at, id],
+                )?;
+                conn.execute("DELETE FROM node_images WHERE id = ?1", [&row_image_id])?;
+                Ok(())
+            })
+            .await?;
+
+        self.remove_image_blob(&old_image_id).await;
+        Ok(())
+    }
+
     /// The on-disk path for `image_id` as a string, iff the file exists. Sync —
     /// the UI calls it on the render path to load an image, so it does no
     /// database work.

@@ -724,6 +724,66 @@ async fn set_image_replaces_the_node_image_row_and_enqueues_the_old_delete() {
 }
 
 #[tokio::test]
+async fn clear_image_nulls_the_pointer_removes_the_row_and_enqueues_the_delete() {
+    let (inv, db, _temp) = open_inventory_with_db().await;
+
+    let node = inv
+        .create_child_with_image("root", b"photo".to_vec())
+        .await
+        .unwrap();
+    let image_id = node.image_id.unwrap();
+    let path = inv
+        .image_path_if_exists(&image_id)
+        .expect("image file on disk");
+    assert!(std::path::Path::new(&path).exists());
+
+    inv.clear_image(&node.id).await.unwrap();
+
+    // The node no longer points at an image, its node_images row is gone (a
+    // DELETE that carries the removal to a peer), and the file is unlinked.
+    assert_eq!(inv.get(&node.id).await.unwrap().unwrap().image_id, None);
+    assert!(node_image_ids_for(&db, &node.id).await.is_empty());
+    assert!(!node_image_exists(&db, &image_id).await);
+    assert!(inv.image_path_if_exists(&image_id).is_none());
+
+    // The cleared image's cloud blob is queued for deletion (built with the
+    // production cloud-key function, not a re-spelled one).
+    let delete_keys: Vec<String> = db
+        .get_pending_cloud_deletes()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.cloud_key)
+        .collect();
+    assert_eq!(
+        delete_keys,
+        vec![visible_core::node::image_cloud_key(&image_id)]
+    );
+}
+
+#[tokio::test]
+async fn clear_image_on_an_imageless_node_is_a_no_op() {
+    let (inv, db, _temp) = open_inventory_with_db().await;
+
+    // The root house carries no image; clearing it changes nothing and enqueues
+    // no cloud delete.
+    inv.clear_image("root").await.unwrap();
+
+    assert_eq!(inv.root().await.unwrap().image_id, None);
+    assert!(db.get_pending_cloud_deletes().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn clear_image_on_missing_node_is_not_found() {
+    let (inv, _temp) = open_inventory().await;
+    let err = inv.clear_image("nope").await.unwrap_err();
+    assert!(
+        matches!(err, visible_core::CoreError::NotFound(_)),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
 async fn set_attributes_round_trips_every_field() {
     let (inv, _temp) = open_inventory().await;
     let node = inv
