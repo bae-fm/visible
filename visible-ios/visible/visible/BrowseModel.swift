@@ -107,7 +107,10 @@ final class BrowseModel {
         dialog = nil
         if id == nodeId {
             Task {
-                if let error = await runWrite("deleting \(nodeId)", { try $0.deleteNode(id: self.nodeId) }) {
+                let error = await BridgeWrite.run("deleting \(nodeId)", handle: handle) {
+                    try $0.deleteNode(id: self.nodeId)
+                }
+                if let error {
                     content = .failed(error)
                 } else {
                     deletedSelf.send(())
@@ -139,26 +142,11 @@ final class BrowseModel {
     /// synchronous.
     private func mutate(_ description: String, _ write: @escaping @Sendable (AppHandle) throws -> Void) {
         Task {
-            if let error = await runWrite(description, write) {
+            if let error = await BridgeWrite.run(description, handle: handle, write) {
                 content = .failed(error)
             } else {
                 reload()
             }
         }
-    }
-
-    /// Runs a bridge write off the main actor; returns nil on success or the
-    /// message on failure.
-    private func runWrite(_ description: String, _ write: @escaping @Sendable (AppHandle) throws -> Void) async -> String? {
-        let handle = handle
-        return await Task.detached {
-            do {
-                try write(handle)
-                return nil
-            } catch {
-                logger.error("\(description, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-                return error.localizedDescription
-            }
-        }.value
     }
 }

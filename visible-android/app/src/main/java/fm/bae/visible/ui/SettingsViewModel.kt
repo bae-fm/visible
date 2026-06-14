@@ -98,8 +98,6 @@ class SettingsViewModel(
 
     /** Probe and connect the S3 cloud home, then refresh the status. */
     fun connect() {
-        errorMessage = null
-        working = true
         // The form strings pass through raw; core reads a blank endpoint/prefix
         // as absent.
         val config = BridgeS3Config(
@@ -110,22 +108,12 @@ class SettingsViewModel(
             accessKey = accessKey,
             secretKey = secretKey,
         )
-        viewModelScope.launch {
-            errorMessage = runWrite("connecting S3") { handle.saveS3Config(config) }
-            working = false
-            reload()
-        }
+        runAction("connecting S3") { handle.saveS3Config(config) }
     }
 
     /** Disconnect the cloud provider, then refresh the status. */
     fun disconnect() {
-        errorMessage = null
-        working = true
-        viewModelScope.launch {
-            errorMessage = runWrite("disconnecting sync") { handle.disconnectSync() }
-            working = false
-            reload()
-        }
+        runAction("disconnecting sync") { handle.disconnectSync() }
     }
 
     /**
@@ -139,17 +127,18 @@ class SettingsViewModel(
         }
     }
 
-    /** Runs a bridge write off-main; returns null on success or the message. */
-    private suspend fun runWrite(description: String, write: () -> Unit): String? =
-        withContext(Dispatchers.IO) {
-            try {
-                write()
-                null
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "$description failed", e)
-                e.message ?: e.toString()
-            }
+    /**
+     * Mark a connect/disconnect in flight, run the bridge write off-main, then
+     * clear the in-flight flag and reload the status. The error (or null on
+     * success) lands in [errorMessage] for the screen to show.
+     */
+    private fun runAction(description: String, write: () -> Unit) {
+        errorMessage = null
+        working = true
+        viewModelScope.launch {
+            errorMessage = runBridgeWrite(TAG, description, write)
+            working = false
+            reload()
         }
+    }
 }

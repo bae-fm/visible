@@ -89,9 +89,6 @@ final class SettingsModel {
     /// call probes the bucket and starts sync — network and a deep stack — so it
     /// runs off the main actor.
     func connect() {
-        errorMessage = nil
-        working = true
-        let handle = handle
         // The form strings pass through raw; core reads a blank endpoint/prefix
         // as absent.
         let config = BridgeS3Config(
@@ -102,41 +99,12 @@ final class SettingsModel {
             accessKey: accessKey,
             secretKey: secretKey
         )
-        Task {
-            let failure = await Task.detached { () -> String? in
-                do {
-                    try handle.saveS3Config(config: config)
-                    return nil
-                } catch {
-                    logger.error("connecting S3 failed: \(error.localizedDescription, privacy: .public)")
-                    return error.localizedDescription
-                }
-            }.value
-            working = false
-            errorMessage = failure
-            reload()
-        }
+        runAction("connecting S3") { try $0.saveS3Config(config: config) }
     }
 
     /// Disconnect the cloud provider, then refresh the status.
     func disconnect() {
-        errorMessage = nil
-        working = true
-        let handle = handle
-        Task {
-            let failure = await Task.detached { () -> String? in
-                do {
-                    try handle.disconnectSync()
-                    return nil
-                } catch {
-                    logger.error("disconnecting sync failed: \(error.localizedDescription, privacy: .public)")
-                    return error.localizedDescription
-                }
-            }.value
-            working = false
-            errorMessage = failure
-            reload()
-        }
+        runAction("disconnecting sync") { try $0.disconnectSync() }
     }
 
     /// Request an immediate sync cycle, then refresh the status so the outbox
@@ -145,6 +113,20 @@ final class SettingsModel {
         let handle = handle
         Task {
             await Task.detached { handle.triggerSync() }.value
+            reload()
+        }
+    }
+
+    /// Mark a connect/disconnect in flight, run the bridge write off the main
+    /// actor, then clear the in-flight flag and reload the status. The error (or
+    /// nil on success) lands in ``errorMessage`` for the view to show.
+    private func runAction(_ description: String, _ write: @escaping @Sendable (AppHandle) throws -> Void) {
+        errorMessage = nil
+        working = true
+        Task {
+            let failure = await BridgeWrite.run(description, handle: handle, write)
+            working = false
+            errorMessage = failure
             reload()
         }
     }

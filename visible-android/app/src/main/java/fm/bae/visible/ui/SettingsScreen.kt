@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 
 /**
@@ -66,55 +67,28 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            val noCaps = KeyboardOptions(capitalization = KeyboardCapitalization.None)
-            OutlinedTextField(
-                value = viewModel.bucket,
-                onValueChange = { viewModel.bucket = it },
-                label = { Text("Bucket") },
-                singleLine = true,
-                keyboardOptions = noCaps,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = viewModel.region,
-                onValueChange = { viewModel.region = it },
-                label = { Text("Region") },
-                singleLine = true,
-                keyboardOptions = noCaps,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
+            S3Field(value = viewModel.bucket, onValueChange = { viewModel.bucket = it }, label = "Bucket")
+            S3Field(value = viewModel.region, onValueChange = { viewModel.region = it }, label = "Region")
+            S3Field(
                 value = viewModel.endpoint,
                 onValueChange = { viewModel.endpoint = it },
-                label = { Text("Endpoint (optional)") },
-                singleLine = true,
-                keyboardOptions = noCaps,
-                modifier = Modifier.fillMaxWidth(),
+                label = "Endpoint (optional)",
             )
-            OutlinedTextField(
+            S3Field(
                 value = viewModel.keyPrefix,
                 onValueChange = { viewModel.keyPrefix = it },
-                label = { Text("Key prefix (optional)") },
-                singleLine = true,
-                keyboardOptions = noCaps,
-                modifier = Modifier.fillMaxWidth(),
+                label = "Key prefix (optional)",
             )
-            OutlinedTextField(
+            S3Field(
                 value = viewModel.accessKey,
                 onValueChange = { viewModel.accessKey = it },
-                label = { Text("Access key") },
-                singleLine = true,
-                keyboardOptions = noCaps,
-                modifier = Modifier.fillMaxWidth(),
+                label = "Access key",
             )
-            OutlinedTextField(
+            S3Field(
                 value = viewModel.secretKey,
                 onValueChange = { viewModel.secretKey = it },
-                label = { Text("Secret key") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = noCaps,
-                modifier = Modifier.fillMaxWidth(),
+                label = "Secret key",
+                isPassword = true,
             )
 
             viewModel.errorMessage?.let { message ->
@@ -148,4 +122,23 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+/** One full-width single-line S3 form field; [isPassword] masks the input. */
+@Composable
+private fun S3Field(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    isPassword: Boolean = false,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
+        modifier = Modifier.fillMaxWidth(),
+    )
 }

@@ -113,7 +113,7 @@ class BrowseViewModel(
         dialog = null
         if (id == nodeId) {
             viewModelScope.launch {
-                val error = runWrite("deleting $nodeId") { handle.deleteNode(nodeId) }
+                val error = runBridgeWrite(TAG, "deleting $nodeId") { handle.deleteNode(nodeId) }
                 if (error == null) deletedSelf.send(Unit) else content = BrowseContent.Failed(error)
             }
         } else {
@@ -142,7 +142,7 @@ class BrowseViewModel(
     /** Runs a bridge write off-main, then reloads to reflect the new state. */
     private fun mutate(description: String, write: () -> Unit) {
         viewModelScope.launch {
-            val error = runWrite(description, write)
+            val error = runBridgeWrite(TAG, description, write)
             if (error == null) {
                 reload()
             } else {
@@ -150,18 +150,4 @@ class BrowseViewModel(
             }
         }
     }
-
-    /** Runs a bridge write off-main; returns null on success or the message. */
-    private suspend fun runWrite(description: String, write: () -> Unit): String? =
-        withContext(Dispatchers.IO) {
-            try {
-                write()
-                null
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "$description failed", e)
-                e.message ?: e.toString()
-            }
-        }
 }
