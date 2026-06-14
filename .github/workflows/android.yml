@@ -47,3 +47,6 @@ jobs:
 
     - name: Assemble debug APK
       run: cd visible-android && ./gradlew assembleDebug --no-daemon
+
+    - name: Run JVM unit tests
+      run: cd visible-android && ./gradlew testDebugUnitTest --no-daemon

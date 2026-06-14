@@ -37,6 +37,10 @@ jobs:
       run: cd visible-ios/visible && xcodegen generate
 
     - name: Build simulator app (unsigned)
+      # Build only — no simulator unit-test run. The shared Swift model logic is
+      # gated by macos.yml's host-run tests (iOS and macOS compile the same model
+      # sources), so an iOS-simulator test run would re-cover the same logic while
+      # needing a booted simulator that's flaky in CI.
       run: |
         xcodebuild \
           -project visible-ios/visible/visible.xcodeproj \

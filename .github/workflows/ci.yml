@@ -33,10 +33,10 @@ jobs:
     - name: Run Clippy
       run: |
         cargo clippy --workspace -- -D warnings
-        cargo clippy -p visible-core --tests -- -D warnings
+        cargo clippy --workspace --tests -- -D warnings
 
     - name: Build workspace
       run: cargo build --workspace
 
     - name: Run tests
-      run: cargo test -p visible-core
+      run: cargo test --workspace

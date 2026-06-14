@@ -36,12 +36,16 @@ jobs:
     - name: Generate Xcode project
       run: cd visible-macos/visible && xcodegen generate
 
-    - name: Build macOS app (unsigned)
+    - name: Build + test macOS app (unsigned)
+      # `test` on the visibleTests scheme builds the host app, then runs the
+      # host-run unit tests for the shared Swift model logic — which is the iOS
+      # app's logic too (the model sources are shared), so iOS needs no separate
+      # test run. A test failure fails the job.
       run: |
         xcodebuild \
           -project visible-macos/visible/visible.xcodeproj \
-          -scheme visible \
+          -scheme visibleTests \
           -configuration Debug \
           -destination 'platform=macOS' \
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-          build
+          test
