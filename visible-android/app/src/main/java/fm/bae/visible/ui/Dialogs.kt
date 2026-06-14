@@ -11,14 +11,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 
 /**
- * A single-field name prompt used for both adding a child and renaming a node.
- * [onConfirm] receives the trimmed name; the confirm button is disabled while
- * the trimmed text is blank, so an empty name can't be submitted.
+ * A single-field name prompt for renaming a node. [onConfirm] receives the
+ * trimmed name; the confirm button is disabled while the trimmed text is blank,
+ * so an empty name can't be submitted.
  */
 @Composable
 fun NameDialog(
     title: String,
-    confirmLabel: String,
     initial: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -41,7 +40,7 @@ fun NameDialog(
                 onClick = { onConfirm(trimmed) },
                 enabled = trimmed.isNotEmpty(),
             ) {
-                Text(confirmLabel)
+                Text(title)
             }
         },
         dismissButton = {

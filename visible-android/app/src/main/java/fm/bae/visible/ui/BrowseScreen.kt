@@ -49,7 +49,11 @@ fun BrowseScreen(
     onOpenChild: (String) -> Unit,
 ) {
     val content = viewModel.content
-    val launchCamera = rememberCameraCapture(onCaptured = viewModel::setImage)
+    // Two capture sites: the photo header replaces this node's photo; the + adds
+    // a new child carrying the captured photo. Each gets its own launcher so the
+    // captured bytes route to the right model method.
+    val takeNodePhoto = rememberCameraCapture(onCaptured = viewModel::setImage)
+    val addChildWithPhoto = rememberCameraCapture(onCaptured = viewModel::addChildWithPhoto)
 
     // Reload whenever this screen becomes current: on first show and on return
     // from a child, so a node's photo or its children reflect changes made while
@@ -91,7 +95,7 @@ fun BrowseScreen(
         },
         floatingActionButton = {
             if (content is BrowseContent.Loaded) {
-                FloatingActionButton(onClick = viewModel::openAddChild) {
+                FloatingActionButton(onClick = addChildWithPhoto) {
                     Icon(Icons.Filled.Add, contentDescription = "Add")
                 }
             }
@@ -109,7 +113,7 @@ fun BrowseScreen(
                     viewModel = viewModel,
                     node = content.node,
                     children = content.children,
-                    onTakePhoto = launchCamera,
+                    onTakePhoto = takeNodePhoto,
                     onOpenChild = onOpenChild,
                 )
             }
@@ -118,16 +122,8 @@ fun BrowseScreen(
 
     when (val dialog = viewModel.dialog) {
         null -> {}
-        is BrowseDialog.AddChild -> NameDialog(
-            title = "Add",
-            confirmLabel = "Add",
-            initial = "",
-            onConfirm = viewModel::addChild,
-            onDismiss = viewModel::dismissDialog,
-        )
         is BrowseDialog.Rename -> NameDialog(
             title = "Rename",
-            confirmLabel = "Rename",
             initial = dialog.target.name,
             onConfirm = { name -> viewModel.rename(dialog.target.id, name) },
             onDismiss = viewModel::dismissDialog,

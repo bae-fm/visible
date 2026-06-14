@@ -1,6 +1,7 @@
 package fm.bae.visible.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.util.Log
@@ -18,13 +19,20 @@ import java.io.File
 
 private const val TAG = "visible.CameraCapture"
 
+/** Whether this device has a camera the capture flow can use. */
+object CameraCapture {
+    fun isAvailable(context: Context): Boolean =
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+}
+
 /**
  * Opens the camera and delivers the captured photo's JPEG bytes, backed by
  * [ActivityResultContracts.TakePicture]: it writes the photo to a temp file in
  * the cache via a [FileProvider] content uri, and on success reads the JPEG
  * bytes back and hands them to [onCaptured], then deletes the temp file.
  * Requests the camera permission first if it isn't granted. Returns the launch
- * function to invoke (e.g. from an onClick).
+ * function to invoke (e.g. from an onClick); on a device with no camera it logs
+ * and does nothing.
  */
 @Composable
 fun rememberCameraCapture(onCaptured: (ByteArray) -> Unit): () -> Unit {
@@ -88,14 +96,18 @@ fun rememberCameraCapture(onCaptured: (ByteArray) -> Unit): () -> Unit {
     }
 
     return {
-        val granted = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.CAMERA,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            startCapture()
+        if (!CameraCapture.isAvailable(context)) {
+            Log.w(TAG, "no camera available on this device; not opening the camera")
         } else {
-            requestPermission.launch(Manifest.permission.CAMERA)
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                startCapture()
+            } else {
+                requestPermission.launch(Manifest.permission.CAMERA)
+            }
         }
     }
 }

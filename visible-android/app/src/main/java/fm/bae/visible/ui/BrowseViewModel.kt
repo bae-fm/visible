@@ -29,8 +29,6 @@ sealed interface BrowseContent {
 
 /** The dialog currently open over the screen, if any. */
 sealed interface BrowseDialog {
-    data object AddChild : BrowseDialog
-
     data class Rename(val target: BridgeNode) : BrowseDialog
 
     data class ConfirmDelete(val target: BridgeNode) : BrowseDialog
@@ -77,10 +75,6 @@ class BrowseViewModel(
         }
     }
 
-    fun openAddChild() {
-        dialog = BrowseDialog.AddChild
-    }
-
     fun openRename(target: BridgeNode) {
         dialog = BrowseDialog.Rename(target)
     }
@@ -93,9 +87,17 @@ class BrowseViewModel(
         dialog = null
     }
 
-    fun addChild(name: String) {
-        dialog = null
-        mutate("creating child of $nodeId") { handle.createNode(nodeId, name) }
+    /**
+     * Create a new child under this node carrying [bytes] as its photo and an
+     * empty name — the photo is the thing's identity until it is titled (by
+     * rename, or later by on-device vision). Both bridge calls run in one write
+     * so the child and its image land together before the reload.
+     */
+    fun addChildWithPhoto(bytes: ByteArray) {
+        mutate("creating child of $nodeId with photo") {
+            val child = handle.createNode(nodeId, "")
+            handle.setNodeImage(child.id, bytes)
+        }
     }
 
     fun rename(id: String, name: String) {
