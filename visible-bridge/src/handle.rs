@@ -5,7 +5,9 @@
 
 use visible_core::RunningApp;
 
-use crate::types::{BridgeError, BridgeNode};
+use crate::types::{
+    BridgeError, BridgeNode, BridgeOutboxSnapshot, BridgeS3Config, BridgeSyncStatus,
+};
 
 #[derive(uniffi::Object)]
 pub struct AppHandle {
@@ -75,5 +77,47 @@ impl AppHandle {
 
     pub fn image_path_if_exists(&self, image_id: String) -> Option<String> {
         self.app.inventory.image_path_if_exists(&image_id)
+    }
+
+    /// Connect an S3 cloud home: probe, persist credentials + config, mint the
+    /// encryption key, and start sync. Probing the bucket and starting sync use a
+    /// deep stack and block on the runtime; the apps call this off the main
+    /// thread.
+    pub fn save_s3_config(&self, config: BridgeS3Config) -> Result<(), BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.sync.save_s3_config(config.into()))?)
+    }
+
+    /// Disconnect the cloud provider, stopping sync and clearing its config and
+    /// credentials. The encryption key is kept so a later reconnect stays
+    /// readable.
+    pub fn disconnect_sync(&self) -> Result<(), BridgeError> {
+        Ok(self.app.sync.disconnect()?)
+    }
+
+    /// Request an immediate sync cycle (no-op when sync isn't connected).
+    pub fn trigger_sync(&self) {
+        self.app.sync.trigger_sync();
+    }
+
+    /// Whether the background sync loop is running.
+    pub fn is_sync_ready(&self) -> bool {
+        self.app.sync.is_sync_ready()
+    }
+
+    /// Whether a provider is configured and whether the loop is running.
+    pub fn sync_status(&self) -> BridgeSyncStatus {
+        self.app.sync.sync_status().into()
+    }
+
+    /// Pending cloud-outbox upload/delete counts for the status line.
+    pub fn outbox_snapshot(&self) -> Result<BridgeOutboxSnapshot, BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.sync.outbox_snapshot())?
+            .into())
     }
 }
