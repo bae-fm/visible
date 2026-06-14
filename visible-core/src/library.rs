@@ -30,6 +30,17 @@ impl LibraryInfo {
     }
 }
 
+impl From<&Config> for LibraryInfo {
+    /// The identity of a library from its runtime config — what the join/restore
+    /// paths return so the host can open the library they just wrote.
+    fn from(config: &Config) -> Self {
+        Self {
+            id: config.library_id.clone(),
+            name: config.library_name.clone(),
+        }
+    }
+}
+
 /// Every library found under `data_dir/libraries/`. A directory whose
 /// `config.yaml` is missing or unparseable is skipped with a log — a half
 /// written or foreign directory shouldn't sink the whole list. A missing

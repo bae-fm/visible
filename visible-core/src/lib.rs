@@ -11,6 +11,7 @@ pub mod config;
 pub mod error;
 pub mod library;
 pub mod node;
+pub mod share;
 pub mod sync;
 
 pub use app::RunningApp;
@@ -18,4 +19,5 @@ pub use config::init_keyring;
 pub use error::CoreError;
 pub use library::LibraryInfo;
 pub use node::{Inventory, Node};
+pub use share::{join_shared_library, remove_library, restore_shared_library};
 pub use sync::{Member, MemberRole, OutboxSnapshot, S3ConfigData, Sync, SyncStatusInfo};
