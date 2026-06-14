@@ -28,11 +28,13 @@ extension View {
     /// and clearing the binding. iOS presents `PhotoLibraryPicker` (PHPicker) in a
     /// sheet; macOS, whose `NSOpenPanel` is application-modal, runs the panel
     /// directly when the binding flips true — the sanctioned platform-mechanism
-    /// difference for the same "pick an image" intent.
+    /// difference for the same "pick an image" intent. The closures are
+    /// `@MainActor @Sendable` so the iOS picker's background load callback can hop
+    /// the result back to the main actor.
     func photoLibraryImport(
         isPresented: Binding<Bool>,
-        onPicked: @escaping (Data) -> Void,
-        onCancel: @escaping () -> Void
+        onPicked: @escaping @MainActor @Sendable (Data) -> Void,
+        onCancel: @escaping @MainActor @Sendable () -> Void
     ) -> some View {
         #if os(iOS)
         return sheet(isPresented: isPresented) {

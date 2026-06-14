@@ -14,8 +14,8 @@ import UIKit
 /// `onPicked: (Data) -> Void` / `onCancel: () -> Void` API as `CameraView`, so
 /// `BrowseView` presents either as a sheet feeding the same `setNodeImage` path.
 struct PhotoLibraryPicker: UIViewControllerRepresentable {
-    let onPicked: (Data) -> Void
-    let onCancel: () -> Void
+    let onPicked: @MainActor @Sendable (Data) -> Void
+    let onCancel: @MainActor @Sendable () -> Void
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var config = PHPickerConfiguration()
@@ -33,10 +33,13 @@ struct PhotoLibraryPicker: UIViewControllerRepresentable {
     }
 
     final class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        private let onPicked: (Data) -> Void
-        private let onCancel: () -> Void
+        private let onPicked: @MainActor @Sendable (Data) -> Void
+        private let onCancel: @MainActor @Sendable () -> Void
 
-        init(onPicked: @escaping (Data) -> Void, onCancel: @escaping () -> Void) {
+        init(
+            onPicked: @escaping @MainActor @Sendable (Data) -> Void,
+            onCancel: @escaping @MainActor @Sendable () -> Void
+        ) {
             self.onPicked = onPicked
             self.onCancel = onCancel
         }
