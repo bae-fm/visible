@@ -3,7 +3,8 @@
 //! only — no logic.
 
 use visible_core::{
-    CoreError, LibraryInfo, Member, MemberRole, Node, OutboxSnapshot, S3ConfigData, SyncStatusInfo,
+    CoreError, LibraryInfo, Member, MemberRole, Node, OutboxSnapshot, S3ConfigData, SearchHit,
+    SyncStatusInfo,
 };
 
 /// A node as the UI consumes it. No `position` — the bridge returns children
@@ -25,6 +26,27 @@ impl From<Node> for BridgeNode {
             parent_id: node.parent_id,
             name: node.name,
             image_id: node.image_id,
+        }
+    }
+}
+
+/// One search match for the search screen: the matching `node`, the ancestor
+/// ids the screen navigates by (`path`, root→node inclusive), and `path_label`,
+/// the core-built breadcrumb of the match's ancestors that the row shows as
+/// secondary text.
+#[derive(uniffi::Record)]
+pub struct BridgeSearchResult {
+    pub node: BridgeNode,
+    pub path: Vec<BridgeNode>,
+    pub path_label: String,
+}
+
+impl From<SearchHit> for BridgeSearchResult {
+    fn from(hit: SearchHit) -> Self {
+        Self {
+            node: hit.node.into(),
+            path: hit.path.into_iter().map(BridgeNode::from).collect(),
+            path_label: hit.path_label,
         }
     }
 }

@@ -7,7 +7,7 @@ use visible_core::RunningApp;
 
 use crate::types::{
     BridgeError, BridgeMember, BridgeMemberRole, BridgeNode, BridgeOutboxSnapshot, BridgeS3Config,
-    BridgeSyncStatus,
+    BridgeSearchResult, BridgeSyncStatus,
 };
 
 #[derive(uniffi::Object)]
@@ -40,6 +40,14 @@ impl AppHandle {
     pub fn node_path(&self, id: String) -> Result<Vec<BridgeNode>, BridgeError> {
         let path = self.app.runtime.block_on(self.app.inventory.path_to(&id))?;
         Ok(path.into_iter().map(BridgeNode::from).collect())
+    }
+
+    pub fn search(&self, query: String) -> Result<Vec<BridgeSearchResult>, BridgeError> {
+        let hits = self
+            .app
+            .runtime
+            .block_on(self.app.inventory.search(&query))?;
+        Ok(hits.into_iter().map(BridgeSearchResult::from).collect())
     }
 
     pub fn create_node_with_image(
