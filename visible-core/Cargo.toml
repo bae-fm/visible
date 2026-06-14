@@ -12,13 +12,10 @@ coven = { git = "https://github.com/bae-fm/coven", rev = "8b4e03d5ea3fcf25b8bbb9
 serde_yaml = "0.9"
 tokio = { version = "1.0", features = ["full"] }
 thiserror = "1.0"
-uuid = { version = "1.0", features = ["v4"] }
 # Cloud-sync identity + per-library encryption key live in the OS keyring; coven
 # reads/writes them through keyring-core, so the host installs the same store and
 # version coven pins (a second keyring-core would split the process-global store).
 keyring-core = "0.7"
-# Hex-encode the encryption key fingerprint coven returns as the config hint.
-hex = "0.4"
 tracing = { workspace = true }
 
 # The native keyring stores are platform mechanisms: Apple's protected keychain
