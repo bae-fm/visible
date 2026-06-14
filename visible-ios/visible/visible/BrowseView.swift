@@ -14,7 +14,10 @@ struct BrowseView: View {
     let onPop: () -> Void
 
     @State private var model: BrowseModel
-    @State private var showCamera = false
+    // Which capture site opened the camera, routing the captured photo to the
+    // right model method: the header replaces this node's photo, the + adds a
+    // new child carrying the photo. nil while the camera is closed.
+    @State private var cameraIntent: CameraIntent?
 
     init(
         handle: AppHandle,
@@ -51,7 +54,7 @@ struct BrowseView: View {
                     }
                     ToolbarItem(placement: .primaryAction) {
                         Button {
-                            model.openAddChild()
+                            openCamera(.newChild)
                         } label: {
                             Image(systemName: "plus")
                         }
@@ -60,13 +63,13 @@ struct BrowseView: View {
             }
             .task { model.reload() }
             .onReceive(model.deletedSelf) { onPop() }
-            .sheet(isPresented: $showCamera) {
+            .sheet(item: $cameraIntent) { intent in
                 CameraView(
                     onCaptured: { bytes in
-                        showCamera = false
-                        model.setImage(bytes)
+                        cameraIntent = nil
+                        capture(bytes, for: intent)
                     },
-                    onCancel: { showCamera = false }
+                    onCancel: { cameraIntent = nil }
                 )
                 .ignoresSafeArea()
             }
@@ -79,14 +82,23 @@ struct BrowseView: View {
         if case let .loaded(node, _) = model.content { node.name } else { "" }
     }
 
-    /// Presents the camera, or logs and does nothing when no camera is
-    /// available (the simulator and camera-less devices have none).
-    private func openCamera() {
+    /// Presents the camera for `intent`, or logs and does nothing when no camera
+    /// is available (the simulator and camera-less devices have none).
+    private func openCamera(_ intent: CameraIntent) {
         guard CameraView.isAvailable else {
             logger.warning("no camera available on this device; not presenting the camera")
             return
         }
-        showCamera = true
+        cameraIntent = intent
+    }
+
+    /// Routes the captured photo to the model method for the site that opened
+    /// the camera: the header sets this node's photo, the + adds a new child.
+    private func capture(_ bytes: Data, for intent: CameraIntent) {
+        switch intent {
+        case .nodePhoto: model.setImage(bytes)
+        case .newChild: model.addChildWithPhoto(bytes)
+        }
     }
 
     @ViewBuilder
@@ -115,7 +127,7 @@ struct BrowseView: View {
                     .aspectRatio(1, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .gridCellColumns(2)
-                    .onTapGesture { openCamera() }
+                    .onTapGesture { openCamera(.nodePhoto) }
 
                 if children.isEmpty {
                     Text("Nothing here yet — add the first thing.")
@@ -143,13 +155,6 @@ struct BrowseView: View {
     @ViewBuilder
     private func dialogContent(_ dialog: BrowseDialog) -> some View {
         switch dialog {
-        case .addChild:
-            NameSheet(
-                title: "Add",
-                initial: "",
-                onConfirm: { name in model.addChild(name: name) },
-                onCancel: { model.dismissDialog() }
-            )
         case let .rename(target):
             NameSheet(
                 title: "Rename",
@@ -165,4 +170,14 @@ struct BrowseView: View {
             )
         }
     }
+}
+
+/// Which of the two capture sites opened the camera. The captured photo routes
+/// to a different ``BrowseModel`` method per case: the photo header replaces
+/// this node's photo, the + adds a new child carrying the photo.
+private enum CameraIntent: Identifiable {
+    case nodePhoto
+    case newChild
+
+    var id: Self { self }
 }

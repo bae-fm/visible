@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// A single-field name prompt used for both adding a child and renaming a node.
-/// `onConfirm` receives the trimmed name; the confirm button is disabled while
-/// the trimmed text is blank, so an empty name can't be submitted.
+/// A single-field name prompt for renaming a node. `onConfirm` receives the
+/// trimmed name; the confirm button is disabled while the trimmed text is blank,
+/// so an empty name can't be submitted.
 struct NameSheet: View {
     let title: String
     let onConfirm: (String) -> Void

@@ -13,13 +13,11 @@ enum BrowseContent {
 
 /// The dialog currently open over the screen, if any.
 enum BrowseDialog: Identifiable {
-    case addChild
     case rename(target: BridgeNode)
     case confirmDelete(target: BridgeNode)
 
     var id: String {
         switch self {
-        case .addChild: "addChild"
         case let .rename(target): "rename-\(target.id)"
         case let .confirmDelete(target): "confirmDelete-\(target.id)"
         }
@@ -41,8 +39,8 @@ final class BrowseModel {
 
     private(set) var content: BrowseContent = .loading
     // Writable so `.sheet(item:)` can clear it when the user swipes the sheet
-    // down; the OPENING transitions go through `openAddChild`/`openRename`/
-    // `openDelete` so the view never assigns a dialog state directly.
+    // down; the OPENING transitions go through `openRename`/`openDelete` so the
+    // view never assigns a dialog state directly.
     var dialog: BrowseDialog?
 
     // A one-shot signal that this node was deleted and the screen showing it
@@ -75,10 +73,6 @@ final class BrowseModel {
         }
     }
 
-    func openAddChild() {
-        dialog = .addChild
-    }
-
     func openRename(_ node: BridgeNode) {
         dialog = .rename(target: node)
     }
@@ -91,9 +85,15 @@ final class BrowseModel {
         dialog = nil
     }
 
-    func addChild(name: String) {
-        dialog = nil
-        mutate("creating child of \(nodeId)") { _ = try $0.createNode(parentId: self.nodeId, name: name) }
+    /// Create a new child under this node carrying `bytes` as its photo and an
+    /// empty name — the photo is the thing's identity until it is titled (by
+    /// rename, or later by on-device vision). Both bridge calls run in one write
+    /// so the child and its image land together before the reload.
+    func addChildWithPhoto(_ bytes: Data) {
+        mutate("creating child of \(nodeId) with photo") {
+            let child = try $0.createNode(parentId: self.nodeId, name: "")
+            try $0.setNodeImage(id: child.id, bytes: bytes)
+        }
     }
 
     func rename(id: String, name: String) {
