@@ -408,22 +408,6 @@ impl Inventory {
         Ok(())
     }
 
-    /// A node's tags, ordered alphabetically.
-    pub async fn tags(&self, id: &str) -> Result<Vec<String>, CoreError> {
-        let id = id.to_string();
-        self.db
-            .call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT tag FROM node_tags WHERE node_id = ?1 ORDER BY tag")?;
-                let tags = stmt
-                    .query_map([id], |r| r.get::<_, String>(0))?
-                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
-                Ok(tags)
-            })
-            .await
-            .map_err(Into::into)
-    }
-
     /// Add `tag` to a node. The tag is trimmed; a blank tag is nothing to add and
     /// is skipped (logged). The insert is `INSERT OR IGNORE` against the
     /// `UNIQUE(node_id, tag)` constraint, so adding a tag the node already has is a

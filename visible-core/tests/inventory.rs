@@ -693,8 +693,7 @@ async fn add_tag_is_idempotent_and_trimmed() {
     inv.add_tag(&node.id, "  fragile  ".into()).await.unwrap();
     inv.add_tag(&node.id, "fragile".into()).await.unwrap();
 
-    let tags = inv.tags(&node.id).await.unwrap();
-    assert_eq!(tags, vec!["fragile"]);
+    assert_eq!(inv.detail(&node.id).await.unwrap().tags, vec!["fragile"]);
 }
 
 #[tokio::test]
@@ -708,23 +707,7 @@ async fn add_tag_skips_a_blank_tag() {
     inv.add_tag(&node.id, "".into()).await.unwrap();
     inv.add_tag(&node.id, "   ".into()).await.unwrap();
 
-    assert!(inv.tags(&node.id).await.unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn tags_are_ordered_alphabetically() {
-    let (inv, _temp) = open_inventory().await;
-    let node = inv
-        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
-        .await
-        .unwrap();
-
-    inv.add_tag(&node.id, "tools".into()).await.unwrap();
-    inv.add_tag(&node.id, "antique".into()).await.unwrap();
-    inv.add_tag(&node.id, "heavy".into()).await.unwrap();
-
-    let tags = inv.tags(&node.id).await.unwrap();
-    assert_eq!(tags, vec!["antique", "heavy", "tools"]);
+    assert!(inv.detail(&node.id).await.unwrap().tags.is_empty());
 }
 
 #[tokio::test]
@@ -744,7 +727,7 @@ async fn remove_tag_drops_one_tag_and_ignores_an_absent_one() {
         .await
         .unwrap();
 
-    assert_eq!(inv.tags(&node.id).await.unwrap(), vec!["keep"]);
+    assert_eq!(inv.detail(&node.id).await.unwrap().tags, vec!["keep"]);
 }
 
 #[tokio::test]
