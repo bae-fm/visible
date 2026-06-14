@@ -21,9 +21,12 @@ enum NodeDetailLogic {
     }()
 
     /// Parse a stored ISO `YYYY-MM-DD` string into a `Date?` for the native
-    /// picker (form-seeding); a string that doesn't parse seeds no date.
+    /// picker (form-seeding); a string that doesn't parse seeds no date — logged,
+    /// like the Android counterpart and the value/quantity parses here.
     static func dateFromIso(_ iso: String) -> Date? {
-        isoDate.date(from: iso)
+        if let date = isoDate.date(from: iso) { return date }
+        logger.debug("acquired date \(iso, privacy: .public) is not an ISO date; showing no date")
+        return nil
     }
 
     /// Render a picked `Date` back to the stored ISO `YYYY-MM-DD` string.
