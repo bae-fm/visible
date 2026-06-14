@@ -11,23 +11,31 @@ enum SessionState {
     case open(handle: AppHandle, rootId: String)
 }
 
-/// Holds the one ``AppHandle`` for the process. On first open it discovers the
+/// Holds the one ``AppHandle`` for the process and publishes the current
+/// ``SessionState`` for the root view to render. On first open it discovers the
 /// library under the app's private data dir (creating the default one if none
-/// exists), opens it, and reads the root node id. There is a single local
-/// library that stays open for the process lifetime — no unlock and nothing to
-/// switch to or dispose around. Only the open result is cached, so a transient
-/// failure can be retried by re-invoking ``open()``.
+/// exists), opens it, and reads the root node id. Joining or restoring a home
+/// replaces the open library in place — a single active home — via
+/// ``switchToHome(_:)``. A failure is published as ``state`` without disturbing
+/// the open library, so the user can retry.
 @MainActor
+@Observable
 final class AppSession {
-    private var opened: (handle: AppHandle, rootId: String)?
+    private(set) var state: SessionState = .loading
 
-    /// Open the library and produce the resulting ``SessionState``. The bridge
-    /// calls touch SQLite, so they run off the main actor; reuse the already
-    /// open session on a re-entry (e.g. a retry after a transient failure). A
-    /// failure is never cached, so a caller can retry by calling this again.
-    func open() async -> SessionState {
-        if let opened {
-            return .open(handle: opened.handle, rootId: opened.rootId)
+    /// The open library's handle, root node id, and library id. The library id is
+    /// the one ``switchToHome(_:)`` removes when a new home replaces this one. nil
+    /// until the first successful open.
+    private var current: (handle: AppHandle, rootId: String, libraryId: String)?
+
+    /// Open the library and publish the resulting ``state``. The bridge calls
+    /// touch SQLite, so they run off the main actor; reuse the already open
+    /// session on a re-entry (e.g. a retry after a transient failure). A failure
+    /// is never cached, so the root view's Retry calls this again.
+    func open() async {
+        if let current {
+            state = .open(handle: current.handle, rootId: current.rootId)
+            return
         }
 
         let dataDir: String
@@ -35,10 +43,11 @@ final class AppSession {
             dataDir = try Self.dataDirectory()
         } catch {
             logger.error("locating data directory failed: \(error.localizedDescription, privacy: .public)")
-            return .failed(error.localizedDescription)
+            state = .failed(error.localizedDescription)
+            return
         }
 
-        let next = await Task.detached {
+        let opened = await Task.detached { () -> Result<(AppHandle, String, String), Error> in
             do {
                 // Install the keyring before anything reads it — cloud sync stores
                 // the identity keypair and the per-library encryption key there.
@@ -46,17 +55,68 @@ final class AppSession {
                 let library = try discoverLibraries(dataDir: dataDir).first
                     ?? createLibrary(dataDir: dataDir)
                 let handle = try initApp(dataDir: dataDir, libraryId: library.id)
-                return SessionState.open(handle: handle, rootId: try handle.rootNode().id)
+                return .success((handle, try handle.rootNode().id, library.id))
             } catch {
-                logger.error("opening library failed: \(error.localizedDescription, privacy: .public)")
-                return SessionState.failed(error.localizedDescription)
+                return .failure(error)
             }
         }.value
 
-        if case let .open(handle, rootId) = next {
-            opened = (handle, rootId)
+        switch opened {
+        case let .success((handle, rootId, libraryId)):
+            current = (handle, rootId, libraryId)
+            state = .open(handle: handle, rootId: rootId)
+        case let .failure(error):
+            logger.error("opening library failed: \(error.localizedDescription, privacy: .public)")
+            state = .failed(error.localizedDescription)
         }
-        return next
+    }
+
+    /// Switch the active library to a home the user joined or restored: write the
+    /// new library to disk (the joiner-side `join_library_from_invite` /
+    /// `restore_library_from_code` call), open it, then remove the previously open
+    /// library — a single active home. Returns nil on success or the failure
+    /// message; on failure ``state`` and the open library are unchanged.
+    ///
+    /// Order matters: write and open the new library FIRST, and only remove the
+    /// old one once the new handle is in hand, so a failed write or open leaves
+    /// the old library intact and nothing is removed.
+    func switchToHome(_ source: HomeSwitch) async -> String? {
+        guard let previous = current else {
+            // open() must have run before any sharing action is reachable.
+            logger.error("switchToHome called before the session was open")
+            return "The current home isn't open yet."
+        }
+
+        let dataDir: String
+        do {
+            dataDir = try Self.dataDirectory()
+        } catch {
+            logger.error("locating data directory failed: \(error.localizedDescription, privacy: .public)")
+            return error.localizedDescription
+        }
+
+        let switched = await Task.detached { () -> Result<(AppHandle, String, String), Error> in
+            do {
+                let library = try source.writeLibrary(dataDir: dataDir)
+                let handle = try initApp(dataDir: dataDir, libraryId: library.id)
+                let rootId = try handle.rootNode().id
+                // The new library is open; dropping the old one can't strand us.
+                try removeLibrary(dataDir: dataDir, libraryId: previous.libraryId)
+                return .success((handle, rootId, library.id))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
+        switch switched {
+        case let .success((handle, rootId, libraryId)):
+            current = (handle, rootId, libraryId)
+            state = .open(handle: handle, rootId: rootId)
+            return nil
+        case let .failure(error):
+            logger.error("\(source.logLabel, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            return error.localizedDescription
+        }
     }
 
     /// Absolute path to the app's Application Support directory, created if

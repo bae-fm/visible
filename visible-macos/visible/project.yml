@@ -26,6 +26,9 @@ targets:
       - path: ../../visible-ios/visible/visible/BrowseView.swift
       - path: ../../visible-ios/visible/visible/SettingsModel.swift
       - path: ../../visible-ios/visible/visible/SettingsView.swift
+      - path: ../../visible-ios/visible/visible/SharingModel.swift
+      - path: ../../visible-ios/visible/visible/SharingView.swift
+      - path: ../../visible-ios/visible/visible/ShareActions.swift
       - path: ../../visible-ios/visible/visible/ChildCard.swift
       - path: ../../visible-ios/visible/visible/NameSheet.swift
       - path: ../../visible-ios/visible/visible/DeleteConfirmSheet.swift

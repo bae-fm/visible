@@ -1,17 +1,14 @@
 import SwiftUI
 
 /// Opens the session, then hosts the browse navigation stack once it is open.
+/// Reads the session's published ``SessionState`` so a library switch (join /
+/// restore) re-renders the stack onto the new home.
 struct AppRootView: View {
     let session: AppSession
 
-    @State private var state: SessionState = .loading
-    // Bumping this re-keys the open task, which re-runs session.open. A failure
-    // is not cached, so the retry re-attempts it.
-    @State private var attempt = 0
-
     var body: some View {
         Group {
-            switch state {
+            switch session.state {
             case .loading:
                 ProgressView()
             case let .failed(message):
@@ -19,17 +16,17 @@ struct AppRootView: View {
                     Text(message)
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
-                    Button("Retry") { attempt += 1 }
+                    Button("Retry") { Task { await session.open() } }
                 }
                 .padding(24)
             case let .open(handle, rootId):
-                BrowseNavigation(handle: handle, rootId: rootId)
+                BrowseNavigation(session: session, handle: handle, rootId: rootId)
+                    // Re-key the stack on the open library's root so a switch to a
+                    // joined home resets the navigation path to the new root.
+                    .id(rootId)
             }
         }
-        .task(id: attempt) {
-            state = .loading
-            state = await session.open()
-        }
+        .task { await session.open() }
     }
 }
 
@@ -37,6 +34,7 @@ struct AppRootView: View {
 /// stack's root; tapping a child appends its id; the system back button or a
 /// delete of the current node pops the last id.
 private struct BrowseNavigation: View {
+    let session: AppSession
     let handle: AppHandle
     let rootId: String
 
@@ -61,7 +59,7 @@ private struct BrowseNavigation: View {
                 )
             }
             .navigationDestination(isPresented: $showSettings) {
-                SettingsView(handle: handle)
+                SettingsView(handle: handle, session: session)
             }
         }
         .tint(Theme.accent)

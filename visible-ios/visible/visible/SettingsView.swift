@@ -5,9 +5,15 @@ import SwiftUI
 /// and macOS. The view only calls ``SettingsModel`` methods and renders; the
 /// model owns the state mutation and the concurrency.
 struct SettingsView: View {
-    @State private var model: SettingsModel
+    let handle: AppHandle
+    let session: AppSession
 
-    init(handle: AppHandle) {
+    @State private var model: SettingsModel
+    @State private var showSharing = false
+
+    init(handle: AppHandle, session: AppSession) {
+        self.handle = handle
+        self.session = session
         _model = State(initialValue: SettingsModel(handle: handle))
     }
 
@@ -16,6 +22,10 @@ struct SettingsView: View {
             Section("Status") {
                 Text(model.statusLine)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("Sharing") {
+                Button("Members & invites") { showSharing = true }
             }
 
             Section("Amazon S3") {
@@ -54,5 +64,8 @@ struct SettingsView: View {
         }
         .inlineNavigationTitle("Sync")
         .task { model.reload() }
+        .navigationDestination(isPresented: $showSharing) {
+            SharingView(handle: handle, session: session)
+        }
     }
 }
