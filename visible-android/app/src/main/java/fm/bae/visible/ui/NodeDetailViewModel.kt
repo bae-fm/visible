@@ -79,23 +79,31 @@ class NodeDetailViewModel(
     /** Load the node's detail and seed the form from it. */
     fun reload() {
         viewModelScope.launch {
-            val loaded = withContext(Dispatchers.IO) {
+            val outcome = withContext(Dispatchers.IO) {
                 try {
-                    handle.nodeDetail(nodeId)
+                    LoadOutcome.Loaded(handle.nodeDetail(nodeId))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "loading detail for $nodeId failed", e)
-                    null
+                    LoadOutcome.Failed(e.message ?: e.toString())
                 }
             }
-            content = if (loaded != null) {
-                seed(loaded)
-                NodeDetailContent.Loaded
-            } else {
-                NodeDetailContent.Failed("This item no longer exists.")
+            content = when (outcome) {
+                is LoadOutcome.Loaded -> {
+                    seed(outcome.detail)
+                    NodeDetailContent.Loaded
+                }
+                is LoadOutcome.Failed -> NodeDetailContent.Failed(outcome.message)
             }
         }
+    }
+
+    /** The result of the off-main detail load, handed back to the main dispatcher. */
+    private sealed interface LoadOutcome {
+        data class Loaded(val detail: BridgeNodeDetail) : LoadOutcome
+
+        data class Failed(val message: String) : LoadOutcome
     }
 
     /**
