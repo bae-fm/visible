@@ -27,13 +27,13 @@ use crate::error::CoreError;
 /// The fields needed to connect an S3-compatible cloud home, as the settings
 /// form collects them. `endpoint` and `key_prefix` are optional as cloud-home
 /// config (AWS S3 needs no endpoint; the prefix is for sharing a bucket across
-/// libraries) — the form passes a blank string for an absent one, and
-/// [`Sync::save_s3_config`] reads blank as "no endpoint/prefix".
+/// libraries) — the form maps a blank or whitespace-only box to `None`, so the
+/// absence arrives here as `None` rather than `""`.
 pub struct S3ConfigData {
     pub bucket: String,
     pub region: String,
-    pub endpoint: String,
-    pub key_prefix: String,
+    pub endpoint: Option<String>,
+    pub key_prefix: Option<String>,
     pub access_key: String,
     pub secret_key: String,
 }
@@ -96,21 +96,17 @@ impl Sync {
     /// time, not via a delayed reconnect banner), then save the credentials and
     /// the cloud-home config and bring the sync loop up.
     pub async fn save_s3_config(&self, data: S3ConfigData) -> Result<(), CoreError> {
-        // Normalize the optional fields once, here, where the single cloud home
-        // is built: a blank form box is the absence of an endpoint/prefix, so it
-        // becomes None before it reaches either the probe or the persisted config.
-        // Both then see the same shape, and Some("") never travels downstream.
-        let endpoint = (!data.endpoint.is_empty()).then_some(data.endpoint);
-        let key_prefix = (!data.key_prefix.is_empty()).then_some(data.key_prefix);
-
         // Probe first — build a throwaway client just to verify reachability.
+        // The optional fields arrive already as `Option` from the form (blank
+        // mapped to `None` there), so the probe and the persisted config below
+        // see the same shape with no normalization here.
         let probe_home = S3CloudHome::new(
             data.bucket.clone(),
             data.region.clone(),
-            endpoint.clone(),
+            data.endpoint.clone(),
             data.access_key.clone(),
             data.secret_key.clone(),
-            key_prefix.clone(),
+            data.key_prefix.clone(),
         )
         .await?;
         probe_home.probe().await?;
@@ -127,8 +123,8 @@ impl Sync {
             config.cloud_home.provider = Some(CloudProvider::S3);
             config.cloud_home.s3_bucket = Some(data.bucket);
             config.cloud_home.s3_region = Some(data.region);
-            config.cloud_home.s3_endpoint = endpoint;
-            config.cloud_home.s3_key_prefix = key_prefix;
+            config.cloud_home.s3_endpoint = data.endpoint;
+            config.cloud_home.s3_key_prefix = data.key_prefix;
             config.save()?;
         }
 

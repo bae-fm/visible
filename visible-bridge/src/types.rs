@@ -43,16 +43,16 @@ impl From<LibraryInfo> for BridgeLibrary {
     }
 }
 
-/// The S3 connection fields the settings form collects, carried as the raw
-/// TextField strings. `endpoint`/`key_prefix` are plain strings: emptiness is a
-/// core concept, so the form passes them through blank and visible-core reads
-/// blank as "no endpoint/prefix" (the one place that interpretation lives).
+/// The S3 connection fields the settings form collects. `endpoint`/`key_prefix`
+/// are optional (AWS S3 needs no endpoint; the prefix is for sharing a bucket
+/// across libraries): the form maps a blank or whitespace-only box to `None`
+/// before sending, so visible-core receives the absence as `None`, never `""`.
 #[derive(uniffi::Record)]
 pub struct BridgeS3Config {
     pub bucket: String,
     pub region: String,
-    pub endpoint: String,
-    pub key_prefix: String,
+    pub endpoint: Option<String>,
+    pub key_prefix: Option<String>,
     pub access_key: String,
     pub secret_key: String,
 }

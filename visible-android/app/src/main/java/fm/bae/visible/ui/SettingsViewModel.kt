@@ -28,7 +28,8 @@ class SettingsViewModel(
     private val handle: AppHandle,
 ) : ViewModel() {
     // The editable S3 form fields, seeded blank (form-seeding exemption). A
-    // blank endpoint or key prefix means absent; core reads it that way.
+    // blank or whitespace-only endpoint or key prefix is mapped to null in
+    // connect() — its absence — so core receives None, never "".
     var bucket by mutableStateOf("")
     var region by mutableStateOf("")
     var endpoint by mutableStateOf("")
@@ -98,13 +99,13 @@ class SettingsViewModel(
 
     /** Probe and connect the S3 cloud home, then refresh the status. */
     fun connect() {
-        // The form strings pass through raw; core reads a blank endpoint/prefix
-        // as absent.
+        // Map a blank or whitespace-only optional box to null at the form (its
+        // absence); trim so a real value is sent without surrounding whitespace.
         val config = BridgeS3Config(
             bucket = bucket,
             region = region,
-            endpoint = endpoint,
-            keyPrefix = keyPrefix,
+            endpoint = endpoint.trim().ifEmpty { null },
+            keyPrefix = keyPrefix.trim().ifEmpty { null },
             accessKey = accessKey,
             secretKey = secretKey,
         )

@@ -15,7 +15,8 @@ final class SettingsModel {
     private let handle: AppHandle
 
     // The editable S3 form fields, seeded blank (form-seeding exemption). A
-    // blank endpoint or key prefix means absent; core reads it that way.
+    // blank or whitespace-only endpoint or key prefix is mapped to nil in
+    // connect() — its absence — so core receives None, never "".
     var bucket = ""
     var region = ""
     var endpoint = ""
@@ -89,13 +90,15 @@ final class SettingsModel {
     /// call probes the bucket and starts sync — network and a deep stack — so it
     /// runs off the main actor.
     func connect() {
-        // The form strings pass through raw; core reads a blank endpoint/prefix
-        // as absent.
+        // Map a blank or whitespace-only optional box to nil at the form (its
+        // absence); trim so a real value is sent without surrounding whitespace.
+        let ep = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = keyPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
         let config = BridgeS3Config(
             bucket: bucket,
             region: region,
-            endpoint: endpoint,
-            keyPrefix: keyPrefix,
+            endpoint: ep.isEmpty ? nil : ep,
+            keyPrefix: prefix.isEmpty ? nil : prefix,
             accessKey: accessKey,
             secretKey: secretKey
         )
