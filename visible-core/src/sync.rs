@@ -3,9 +3,9 @@
 //! status. Sibling to [`crate::node::Inventory`] in
 //! [`crate::app::RunningApp`].
 //!
-//! coven owns everything hard — the sync loop, encryption, the cloud layout, the
-//! membership model. This service is the host wiring: it holds the live config,
-//! the keyring-backed [`KeyService`], the shared [`Database`], and the one
+//! coven owns the sync loop, encryption, the cloud layout, and the membership
+//! model. This service is the host wiring: it holds the live config, the
+//! keyring-backed [`KeyService`], the shared [`Database`], and the one
 //! [`SyncManager`] (rebuilt across reconnects, never the database or stamper).
 
 use std::sync::{Arc, RwLock};
@@ -206,8 +206,9 @@ impl Sync {
         // start_sync silently bails when the cloud home is unreachable or sync
         // init returns None; writing the fingerprint then would tell the next
         // launch "this library has encryption set up" and skip the unlock prompt
-        // while sync is still broken. Leaving it unwritten keeps the next attempt
-        // a clean retry; the manager is kept so a reconnect can recover.
+        // while sync is still broken. Leaving it unwritten means the next connect
+        // attempt runs with no fingerprint recorded yet; the manager is kept so a
+        // reconnect can recover.
         if manager.is_sync_ready() {
             let mut config = self.config.write().unwrap();
             config.encryption_key_stored = true;
@@ -216,7 +217,7 @@ impl Sync {
         } else {
             self.warn_sync_not_ready(
                 "after connect; encryption-key fingerprint not recorded — the next connect \
-                 attempt will retry from a clean state",
+                 attempt will retry with no fingerprint recorded yet",
             );
         }
 
@@ -367,7 +368,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disconnect_without_a_provider_is_a_clean_no_op() {
+    async fn disconnect_without_a_provider_is_a_no_op() {
         let (sync, _temp) = open_sync().await;
         // Nothing is connected; disconnect clears the (already empty) cloud home
         // and returns Ok rather than erroring on the missing manager/credentials.

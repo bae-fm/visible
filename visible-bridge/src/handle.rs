@@ -108,7 +108,7 @@ impl AppHandle {
         self.app.sync.sync_status().into()
     }
 
-    /// Pending cloud-outbox upload/delete counts for the status line.
+    /// The pending cloud-outbox delete count for the status line.
     pub fn outbox_snapshot(&self) -> Result<BridgeOutboxSnapshot, BridgeError> {
         Ok(self
             .app

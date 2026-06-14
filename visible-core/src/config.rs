@@ -15,8 +15,9 @@ use tracing::{info, warn};
 ///
 /// On macOS the protected data store is used with iCloud key sync enabled, so a
 /// returning user's encryption key restores from iCloud Keychain (when they have
-/// it on); a fallback to the local-only protected store keeps the app usable if
-/// that store can't be created.
+/// it on); if that store can't be created the keyring falls back to the
+/// local-only protected store, which holds keys on this machine but does not sync
+/// them across the user's devices.
 pub fn init_keyring() {
     coven::keys::set_keyring_service("visible");
 
