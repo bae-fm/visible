@@ -406,6 +406,27 @@ async fn search_renders_an_untitled_ancestor_in_the_label() {
 }
 
 #[tokio::test]
+async fn search_orders_matches_by_name_case_insensitively() {
+    let (inv, _temp) = open_inventory().await;
+
+    // All three contain "box"; their names differ in capitalization. A binary
+    // sort would put "Big box" and "Tin box" (uppercase) before "apple box"
+    // (lowercase); a case-insensitive sort reads naturally: apple, Big, Tin.
+    create_named(&inv, "root", "Tin box").await;
+    create_named(&inv, "root", "apple box").await;
+    create_named(&inv, "root", "Big box").await;
+
+    let names: Vec<String> = inv
+        .search("box")
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|hit| hit.node.name)
+        .collect();
+    assert_eq!(names, vec!["apple box", "Big box", "Tin box"]);
+}
+
+#[tokio::test]
 async fn search_with_an_empty_or_whitespace_query_returns_nothing() {
     let (inv, _temp) = open_inventory().await;
     create_named(&inv, "root", "Anything").await;

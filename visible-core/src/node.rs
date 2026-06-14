@@ -192,9 +192,10 @@ impl Inventory {
     /// it, so search finds its contents, not the house itself — and untitled
     /// nodes (`name` NULL) never match a text query. An empty or whitespace-only
     /// query has nothing to match, so returns no results. Results are ordered by
-    /// name. Each match's breadcrumb is walked on the same connection as the
-    /// match query, so the whole search is one connection call (no per-match
-    /// round trip).
+    /// name case-insensitively, so they read in natural alphabetical order
+    /// regardless of capitalization (matching the case-insensitive match). Each
+    /// match's breadcrumb is walked on the same connection as the match query, so
+    /// the whole search is one connection call (no per-match round trip).
     pub async fn search(&self, query: &str) -> Result<Vec<SearchHit>, CoreError> {
         let query = query.trim();
         if query.is_empty() {
@@ -207,7 +208,7 @@ impl Inventory {
                     "SELECT {NODE_COLUMNS} FROM nodes \
                      WHERE parent_id IS NOT NULL \
                        AND name LIKE '%' || ?1 || '%' COLLATE NOCASE \
-                     ORDER BY name"
+                     ORDER BY name COLLATE NOCASE"
                 ))?;
                 let matches = stmt
                     .query_map([&query], Node::from_row)?
