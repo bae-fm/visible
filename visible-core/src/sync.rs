@@ -308,7 +308,6 @@ mod tests {
 
     use chrono::{TimeZone, Utc};
     use coven::clock::FixedClock;
-    use coven::sync::session::SyncedTable;
 
     /// Build a real `Sync` over a real coven database on a temp dir, with the
     /// in-memory test keyring installed — the production service, not a
@@ -329,13 +328,7 @@ mod tests {
         );
         config.save().unwrap();
 
-        let (db, _stamper) = Database::open(
-            &dir.db_path(),
-            vec![SyncedTable::new("nodes"), SyncedTable::new("node_images")],
-            "device".to_string(),
-            |conn| conn.execute_batch(crate::node::SCHEMA).map_err(Into::into),
-        )
-        .unwrap();
+        let (db, _stamper) = crate::app::open_database(&dir, "device".to_string()).unwrap();
 
         let key_service = KeyService::new("lib-sync".to_string());
         let clock: ClockRef = Arc::new(FixedClock(
