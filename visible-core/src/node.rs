@@ -324,8 +324,7 @@ impl Inventory {
             Outcome::IsRoot => Err(CoreError::Internal("cannot delete the root node".into())),
             Outcome::Deleted(image_ids) => {
                 for image_id in image_ids {
-                    self.remove_image_file(&image_id);
-                    self.enqueue_image_delete(&image_id).await;
+                    self.remove_image_blob(&image_id).await;
                 }
                 Ok(())
             }
@@ -376,8 +375,7 @@ impl Inventory {
         update?;
 
         if let Some(old) = existing.image_id {
-            self.remove_image_file(&old);
-            self.enqueue_image_delete(&old).await;
+            self.remove_image_blob(&old).await;
         }
         Ok(())
     }
@@ -412,6 +410,17 @@ impl Inventory {
         std::fs::write(&path, bytes)
             .map_err(|e| CoreError::Io(format!("writing image {}: {e}", path.display())))?;
         Ok(image_id)
+    }
+
+    /// Remove an image everywhere it lives once its `node_images` row is gone:
+    /// unlink the local file and enqueue the cloud blob for deletion. Both steps
+    /// are best-effort (see the two callees) — the row is already deleted, so a
+    /// leftover file or cloud blob is leakage, not a fault. Called from the
+    /// `delete` subtree cleanup and the `set_image` replace path, keeping the
+    /// local-unlink and cloud-delete intent together.
+    async fn remove_image_blob(&self, image_id: &str) {
+        self.remove_image_file(image_id);
+        self.enqueue_image_delete(image_id).await;
     }
 
     /// Enqueue an image's cloud blob for deletion. Best-effort: a failed enqueue
