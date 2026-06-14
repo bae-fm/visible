@@ -105,15 +105,17 @@ final class AppSession {
 
     /// Make `source`'s home the active one: write the new library to disk (create
     /// a fresh local home, or the joiner-side `join_library_from_invite` /
-    /// `restore_library_from_code` download), open it, then remove the previously
-    /// open library if there was one — a single active home. Drives both
-    /// onboarding (no prior home) and the settings/sharing switch (replacing the
-    /// current home). Returns nil on success or the failure message; on failure
+    /// `restore_library_from_code` download), open it, then remove the library it
+    /// replaced if a different one took its place — a single active home. Drives
+    /// both onboarding (no prior home) and the settings/sharing switch (replacing
+    /// the current home). Returns nil on success or the failure message; on failure
     /// ``state`` and any open library are unchanged.
     ///
     /// Order matters: write and open the new library FIRST, and only remove the
-    /// old one once the new handle is in hand, so a failed write or open leaves
-    /// the old library intact and nothing is removed.
+    /// replaced one once the new handle is in hand, so a failed write or open
+    /// leaves the old library intact and nothing is removed. Re-joining or
+    /// restoring the home already active reopens the same id, so the switch is a
+    /// harmless reopen rather than a self-delete.
     func switchToHome(_ source: HomeSwitch) async -> String? {
         let previous = current
 
@@ -130,9 +132,12 @@ final class AppSession {
                 let library = try source.writeLibrary(dataDir: dataDir)
                 let handle = try initApp(dataDir: dataDir, libraryId: library.id)
                 let rootId = try handle.rootNode().id
-                // The new library is open; dropping the old one (if any) can't
-                // strand us.
-                if let previous {
+                // The new library is open; dropping the library it replaced (if a
+                // different one) can't strand us. Re-joining/restoring the active
+                // home reopens the same id (coven derives it from the code, stable
+                // per home), so there is nothing to remove — removing it would
+                // delete the directory + keyring key this handle is backed by.
+                if let previous, previous.libraryId != library.id {
                     try removeLibrary(dataDir: dataDir, libraryId: previous.libraryId)
                 }
                 return .success((handle, rootId, library.id))

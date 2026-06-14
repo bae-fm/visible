@@ -20,6 +20,18 @@ import uniffi.visible_bridge.restoreLibraryFromCode
 private const val TAG = "visible.AppSession"
 
 /**
+ * Whether [switchToHome] removes the library it replaced. Remove it only when a
+ * different library takes its place: there is a previous library and its id
+ * differs from the new one. Joining or restoring the home already active produces
+ * the same id (coven derives the joined/restored library id from the code, stable
+ * per home), so the switch reopens that one directory in place — removing it would
+ * delete the directory and keyring key the just-opened handle is backed by. First
+ * run has no previous library, so nothing is removed.
+ */
+internal fun shouldRemovePrevious(previousId: String?, newId: String): Boolean =
+    previousId != null && previousId != newId
+
+/**
  * The app-root lifecycle: opening, no library yet (first run), failed to open, or
  * open.
  */
@@ -151,14 +163,16 @@ class AppSession {
     /**
      * Make [source]'s home the active one: write the new library to disk (create a
      * fresh local home, or the joiner-side download), open it, then remove the
-     * previously open library if there was one — a single active home. Drives both
-     * onboarding (no prior home) and the settings/sharing switch (replacing the
-     * current home). Returns null on success or the failure message; on failure
-     * [state] and any open library are unchanged.
+     * library it replaced if a different one took its place — a single active home.
+     * Drives both onboarding (no prior home) and the settings/sharing switch
+     * (replacing the current home). Returns null on success or the failure message;
+     * on failure [state] and any open library are unchanged.
      *
-     * Order matters: write and open the new library FIRST, and only remove the old
-     * one once the new handle is in hand, so a failed write or open leaves the old
-     * library intact and nothing is removed.
+     * Order matters: write and open the new library FIRST, and only remove the
+     * replaced one once the new handle is in hand, so a failed write or open leaves
+     * the old library intact and nothing is removed. Re-joining or restoring the
+     * home already active reopens the same id ([shouldRemovePrevious] is false), so
+     * the switch is a harmless reopen rather than a self-delete.
      */
     suspend fun switchToHome(context: Context, source: HomeSwitch): String? {
         val previous = current
@@ -169,10 +183,11 @@ class AppSession {
                 val library = source.writeLibrary(dataDir)
                 val handle = initApp(dataDir, library.id)
                 val rootId = handle.rootNode().id
-                // The new library is open; dropping the old one (if any) can't
-                // strand us.
-                if (previous != null) {
-                    removeLibrary(dataDir, previous.libraryId)
+                // The new library is open; dropping the library it replaced (if a
+                // different one) can't strand us. Re-joining/restoring the active
+                // home reopens the same id, so there is nothing to remove.
+                if (shouldRemovePrevious(previous?.libraryId, library.id)) {
+                    removeLibrary(dataDir, previous!!.libraryId)
                 }
                 current = Current(handle, rootId, library.id)
                 _state.value = SessionState.Open(handle, rootId, library.id)

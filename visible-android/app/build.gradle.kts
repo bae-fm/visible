@@ -61,6 +61,11 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
+    // Local JUnit unit test for shouldRemovePrevious, the single-active-home
+    // remove-vs-keep decision. Pure logic, no Android framework, so it runs on the
+    // JVM under testDebugUnitTest.
+    testImplementation("junit:junit:4.13.2")
+
     // Instrumented navigation test: TestNavHostController drives the real
     // browse/search graph to prove tapping a search result lands a back stack
     // that walks up the matched node's real ancestors.
