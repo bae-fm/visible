@@ -88,14 +88,9 @@ final class SearchModel {
         case failed(String)
     }
 
-    /// The local file path for `imageId` if its file exists, else nil. The bridge
-    /// call does no database work (a filesystem existence check), so the row's
-    /// thumbnail calls it directly on the render path.
+    /// The local file path for `imageId` if its file exists, else nil; the row's
+    /// thumbnail calls it on the render path.
     func imagePath(_ imageId: String) -> String? {
-        let path = handle.imagePathIfExists(imageId: imageId)
-        if path == nil {
-            logger.debug("no image file for \(imageId, privacy: .public); showing placeholder")
-        }
-        return path
+        visible.imagePath(handle, imageId)
     }
 }

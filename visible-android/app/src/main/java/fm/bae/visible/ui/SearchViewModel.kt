@@ -98,15 +98,8 @@ class SearchViewModel(
     }
 
     /**
-     * The local file path for [imageId] if its file exists, else null. The bridge
-     * call does no database work (a filesystem existence check), so the row's
-     * thumbnail calls it directly on the render path.
+     * The local file path for [imageId] if its file exists, else null; the row's
+     * thumbnail calls it on the render path.
      */
-    fun imagePath(imageId: String): String? {
-        val path = handle.imagePathIfExists(imageId)
-        if (path == null) {
-            Log.d(TAG, "no image file for $imageId; showing placeholder")
-        }
-        return path
-    }
+    fun imagePath(imageId: String): String? = imagePath(handle, imageId)
 }

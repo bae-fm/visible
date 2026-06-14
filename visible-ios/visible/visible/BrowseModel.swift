@@ -125,16 +125,10 @@ final class BrowseModel {
         mutate("setting image on \(nodeId)") { try $0.setNodeImage(id: self.nodeId, bytes: bytes) }
     }
 
-    /// The local file path for `imageId` if its file exists, else nil. The
-    /// bridge call does no database work (it is a filesystem existence check), so
-    /// the image views call it directly on the render path.
+    /// The local file path for `imageId` if its file exists, else nil; the image
+    /// views call it on the render path.
     func imagePath(_ imageId: String) -> String? {
-        let path = handle.imagePathIfExists(imageId: imageId)
-        if path == nil {
-            // A node whose image file isn't on disk renders the placeholder.
-            logger.debug("no image file for \(imageId, privacy: .public); showing placeholder")
-        }
-        return path
+        visible.imagePath(handle, imageId)
     }
 
     /// Runs a bridge write off the main actor, then reloads to reflect the new

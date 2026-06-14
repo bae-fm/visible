@@ -126,18 +126,10 @@ class BrowseViewModel(
     }
 
     /**
-     * The local file path for [imageId] if its file exists, else null. The
-     * bridge call does no database work (it is a filesystem existence check), so
-     * the image composables call it directly on the render path.
+     * The local file path for [imageId] if its file exists, else null; the image
+     * composables call it on the render path.
      */
-    fun imagePath(imageId: String): String? {
-        val path = handle.imagePathIfExists(imageId)
-        if (path == null) {
-            // A node whose image file isn't on disk renders the placeholder.
-            Log.d(TAG, "no image file for $imageId; showing placeholder")
-        }
-        return path
-    }
+    fun imagePath(imageId: String): String? = imagePath(handle, imageId)
 
     /** Runs a bridge write off-main, then reloads to reflect the new state. */
     private fun mutate(description: String, write: () -> Unit) {
