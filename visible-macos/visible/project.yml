@@ -24,6 +24,8 @@ targets:
       - path: ../../visible-ios/visible/visible/BridgeWrite.swift
       - path: ../../visible-ios/visible/visible/BrowseModel.swift
       - path: ../../visible-ios/visible/visible/BrowseView.swift
+      - path: ../../visible-ios/visible/visible/SearchModel.swift
+      - path: ../../visible-ios/visible/visible/SearchView.swift
       - path: ../../visible-ios/visible/visible/SettingsModel.swift
       - path: ../../visible-ios/visible/visible/SettingsView.swift
       - path: ../../visible-ios/visible/visible/SharingModel.swift

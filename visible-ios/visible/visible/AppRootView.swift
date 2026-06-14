@@ -40,6 +40,7 @@ private struct BrowseNavigation: View {
 
     @State private var path: [String] = []
     @State private var showSettings = false
+    @State private var showSearch = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -48,6 +49,7 @@ private struct BrowseNavigation: View {
                 nodeId: rootId,
                 onOpenChild: { path.append($0) },
                 onPop: {},
+                onOpenSearch: { showSearch = true },
                 onOpenSettings: { showSettings = true }
             )
             .navigationDestination(for: String.self) { nodeId in
@@ -55,13 +57,27 @@ private struct BrowseNavigation: View {
                     handle: handle,
                     nodeId: nodeId,
                     onOpenChild: { path.append($0) },
-                    onPop: { if !path.isEmpty { path.removeLast() } }
+                    onPop: { if !path.isEmpty { path.removeLast() } },
+                    onOpenSearch: { showSearch = true }
                 )
             }
             .navigationDestination(isPresented: $showSettings) {
                 SettingsView(handle: handle, session: session)
             }
+            .navigationDestination(isPresented: $showSearch) {
+                SearchView(handle: handle, onNavigate: navigate)
+            }
         }
         .tint(Theme.accent)
+    }
+
+    /// Land the browse stack on a searched node: set the navigation path to the
+    /// node's ancestor ids below the root (the root is the stack's own root), and
+    /// pop the search screen. Rebuilding the path this way puts every ancestor on
+    /// the stack, so the back button from the landed node walks up the real
+    /// ancestor chain to the root.
+    private func navigate(to breadcrumb: [BridgeNode]) {
+        path = breadcrumb.dropFirst().map(\.id)
+        showSearch = false
     }
 }

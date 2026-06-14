@@ -12,6 +12,9 @@ private let logger = Logger.visible("BrowseView")
 struct BrowseView: View {
     let onOpenChild: (String) -> Void
     let onPop: () -> Void
+    // Open the search screen. Search spans the whole tree, so every level offers
+    // it (unlike the root-only settings gear).
+    let onOpenSearch: () -> Void
     // Open the sync settings screen. Only the root house passes this, so the gear
     // shows there and nowhere deeper; nil leaves the gear off.
     let onOpenSettings: (() -> Void)?
@@ -27,10 +30,12 @@ struct BrowseView: View {
         nodeId: String,
         onOpenChild: @escaping (String) -> Void,
         onPop: @escaping () -> Void,
+        onOpenSearch: @escaping () -> Void,
         onOpenSettings: (() -> Void)? = nil
     ) {
         self.onOpenChild = onOpenChild
         self.onPop = onPop
+        self.onOpenSearch = onOpenSearch
         self.onOpenSettings = onOpenSettings
         _model = State(initialValue: BrowseModel(handle: handle, nodeId: nodeId))
     }
@@ -62,6 +67,11 @@ struct BrowseView: View {
                             openCamera(.newChild)
                         } label: {
                             Image(systemName: "plus")
+                        }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button(action: onOpenSearch) {
+                            Image(systemName: "magnifyingglass")
                         }
                     }
                     // The sync gear lives on the root house only.
