@@ -173,7 +173,10 @@ private fun InviteSection(viewModel: SharingViewModel) {
             onValueChange = { viewModel.inviteIdentityCode = it },
             label = { Text("Their identity code") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+            ),
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -205,7 +208,10 @@ private fun JoinOrRestoreSection(viewModel: SharingViewModel) {
             onValueChange = { viewModel.joinInviteCode = it },
             label = { Text("Paste an invite code") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+            ),
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedButton(
@@ -221,7 +227,10 @@ private fun JoinOrRestoreSection(viewModel: SharingViewModel) {
             onValueChange = { viewModel.restoreInputCode = it },
             label = { Text("Paste a restore code") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+            ),
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedButton(
