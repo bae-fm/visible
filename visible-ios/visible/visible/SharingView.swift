@@ -99,7 +99,7 @@ struct SharingView: View {
                 } else {
                     ForEach(members, id: \.pubkey) { member in
                         MemberRow(
-                            shortPubkey: model.shortPubkey(member),
+                            shortPubkey: member.shortPubkey,
                             role: model.roleLabel(member),
                             isSelf: member.isSelf,
                             onRemove: member.isSelf ? nil : { model.confirmRemove(member) }

@@ -111,16 +111,6 @@ class SharingViewModel(
         private set
 
     /**
-     * A member's pubkey shortened for the row label (the full key is long hex).
-     * Derived here so the composable renders the result directly.
-     */
-    fun shortPubkey(member: BridgeMember): String {
-        val key = member.pubkey
-        if (key.length <= 16) return key
-        return "${key.take(8)}…${key.takeLast(8)}"
-    }
-
-    /**
      * A member's role as a row label. The role-to-label decision is domain, so it
      * lives on the model, not the composable.
      */

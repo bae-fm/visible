@@ -45,11 +45,13 @@ impl From<LibraryInfo> for BridgeLibrary {
     }
 }
 
-/// A member of a shared library, for the members list. `is_self` marks this
-/// device's own entry so the UI can label it.
+/// A member of a shared library, for the members list. `short_pubkey` is the
+/// row label core already truncated; `is_self` marks this device's own entry so
+/// the UI can label it.
 #[derive(uniffi::Record)]
 pub struct BridgeMember {
     pub pubkey: String,
+    pub short_pubkey: String,
     pub role: BridgeMemberRole,
     pub is_self: bool,
 }
@@ -58,6 +60,7 @@ impl From<Member> for BridgeMember {
     fn from(m: Member) -> Self {
         Self {
             pubkey: m.pubkey,
+            short_pubkey: m.short_pubkey,
             role: m.role.into(),
             is_self: m.is_self,
         }
@@ -194,7 +197,7 @@ mod tests {
     /// mapping is the FFI boundary the members list (core → bridge) and
     /// `invite_member` (bridge → core) cross separately, so a swapped pair would
     /// silently grant the wrong access — and a round-trip alone wouldn't catch it
-    /// (a swap in both directions round-trips clean). Assert each direction
+    /// (a swap in both directions would still pass). Assert each direction
     /// against the expected variant instead.
     #[test]
     fn member_role_maps_to_the_same_variant_each_direction() {

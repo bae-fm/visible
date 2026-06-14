@@ -30,9 +30,13 @@ use crate::error::CoreError;
 pub use coven::sync::membership::MemberRole;
 
 /// One member of a shared library: their device identity public key (Ed25519,
-/// hex), their role, and whether the entry is this device.
+/// hex), the same key shortened for a row label, their role, and whether the
+/// entry is this device.
 pub struct Member {
     pub pubkey: String,
+    /// `pubkey` shortened to `first8…last8` for the members-list row, so the UI
+    /// renders the label directly instead of truncating the long hex itself.
+    pub short_pubkey: String,
     pub role: MemberRole,
     pub is_self: bool,
 }
@@ -40,11 +44,25 @@ pub struct Member {
 impl From<MemberInfo> for Member {
     fn from(m: MemberInfo) -> Self {
         Self {
+            short_pubkey: short_pubkey(&m.pubkey),
             pubkey: m.pubkey,
             role: m.role,
             is_self: m.is_self,
         }
     }
+}
+
+/// Shorten a hex pubkey to `first8…last8` for a row label. Keys at or under 16
+/// chars (never a real 64-char Ed25519 key) are returned whole — there's nothing
+/// to elide.
+fn short_pubkey(pubkey: &str) -> String {
+    let chars: Vec<char> = pubkey.chars().collect();
+    if chars.len() <= 16 {
+        return pubkey.to_string();
+    }
+    let prefix: String = chars[..8].iter().collect();
+    let suffix: String = chars[chars.len() - 8..].iter().collect();
+    format!("{prefix}…{suffix}")
 }
 
 /// The fields needed to connect an S3-compatible cloud home, as the settings
@@ -490,6 +508,15 @@ mod tests {
         );
         // Stable across calls — the keypair is read back, not re-minted.
         assert_eq!(sync.user_identity_code().await.unwrap(), code);
+    }
+
+    #[test]
+    fn short_pubkey_elides_a_full_key_and_passes_short_ones_through() {
+        let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert_eq!(short_pubkey(key), "01234567…89abcdef");
+        // 16 chars or fewer: nothing to elide, returned whole.
+        assert_eq!(short_pubkey("0123456789abcdef"), "0123456789abcdef");
+        assert_eq!(short_pubkey("abc"), "abc");
     }
 
     #[tokio::test]

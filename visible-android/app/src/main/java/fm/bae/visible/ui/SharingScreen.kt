@@ -154,7 +154,7 @@ private fun MembersSection(viewModel: SharingViewModel) {
             } else {
                 state.value.forEach { member ->
                     MemberRow(
-                        shortPubkey = viewModel.shortPubkey(member),
+                        shortPubkey = member.shortPubkey,
                         role = viewModel.roleLabel(member),
                         isSelf = member.isSelf,
                         onRemove = if (member.isSelf) null else { -> viewModel.confirmRemove(member) },

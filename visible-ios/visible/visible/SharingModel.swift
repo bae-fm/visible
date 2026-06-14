@@ -71,14 +71,6 @@ final class SharingModel {
         self.session = session
     }
 
-    /// A member's pubkey shortened for the row label (the full key is long hex).
-    /// Derived here so the view renders the result directly.
-    func shortPubkey(_ member: BridgeMember) -> String {
-        let key = member.pubkey
-        guard key.count > 16 else { return key }
-        return "\(key.prefix(8))…\(key.suffix(8))"
-    }
-
     /// A member's role as a row label. The role-to-label decision is domain, so
     /// it lives on the model, not the view.
     func roleLabel(_ member: BridgeMember) -> String {
