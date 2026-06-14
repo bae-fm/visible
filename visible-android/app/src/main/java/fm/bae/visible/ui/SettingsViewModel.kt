@@ -56,6 +56,36 @@ class SettingsViewModel(
         get() = !working && bucket.isNotEmpty() && region.isNotEmpty() &&
             accessKey.isNotEmpty() && secretKey.isNotEmpty()
 
+    /** Whether a provider is configured (a Disconnect / Sync-now action makes sense). */
+    val isConnected: Boolean
+        get() = status?.configured == true
+
+    /**
+     * The one-line status: the in-flight connect, then the configured/ready
+     * state, with the pending outbox counts appended when there is work queued.
+     * Composed here on the model from the booleans and counts the bridge provides
+     * plus the local in-flight flag, so the composable renders it directly.
+     */
+    val statusLine: String
+        get() {
+            if (working) return "Connecting…"
+            val status = status
+            if (status?.configured != true) return "Not connected"
+            val base = if (status.ready) "Synced" else "Connected (starting…)"
+            return base + pendingSuffix
+        }
+
+    /** `" · N to upload, M to delete"` when the outbox has pending work, else empty. */
+    private val pendingSuffix: String
+        get() {
+            val outbox = outbox ?: return ""
+            val parts = buildList {
+                if (outbox.pendingUploads > 0u) add("${outbox.pendingUploads} to upload")
+                if (outbox.pendingDeletes > 0u) add("${outbox.pendingDeletes} to delete")
+            }
+            return if (parts.isEmpty()) "" else " · " + parts.joinToString(", ")
+        }
+
     /** Load the current sync status and outbox counts. */
     fun reload() {
         viewModelScope.launch {
@@ -103,6 +133,17 @@ class SettingsViewModel(
         viewModelScope.launch {
             errorMessage = runWrite("disconnecting sync") { handle.disconnectSync() }
             working = false
+            reload()
+        }
+    }
+
+    /**
+     * Request an immediate sync cycle, then refresh the status so the outbox
+     * counts reflect the drain. A no-op in the bridge when sync isn't connected.
+     */
+    fun triggerSync() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { handle.triggerSync() }
             reload()
         }
     }

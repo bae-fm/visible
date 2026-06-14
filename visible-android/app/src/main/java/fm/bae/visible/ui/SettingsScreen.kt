@@ -26,8 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import uniffi.visible_bridge.BridgeOutboxSnapshot
-import uniffi.visible_bridge.BridgeSyncStatus
 
 /**
  * The cloud-sync settings screen: an S3 connection form, a Connect/Disconnect
@@ -64,7 +62,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = statusLine(viewModel.working, viewModel.status, viewModel.outbox),
+                text = viewModel.statusLine,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
@@ -131,7 +129,15 @@ fun SettingsScreen(
                 Text("Connect")
             }
 
-            if (viewModel.status?.configured == true) {
+            if (viewModel.isConnected) {
+                OutlinedButton(
+                    onClick = viewModel::triggerSync,
+                    enabled = !viewModel.working,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Sync now")
+                }
+
                 OutlinedButton(
                     onClick = viewModel::disconnect,
                     enabled = !viewModel.working,
@@ -142,31 +148,4 @@ fun SettingsScreen(
             }
         }
     }
-}
-
-/**
- * The one-line status: the in-flight connect, then the configured/ready state,
- * with the pending outbox counts appended when there is work queued. Built from
- * the booleans and counts the bridge already provides plus the model's local
- * in-flight flag — no domain re-derivation.
- */
-private fun statusLine(
-    working: Boolean,
-    status: BridgeSyncStatus?,
-    outbox: BridgeOutboxSnapshot?,
-): String {
-    if (working) return "Connecting…"
-    if (status?.configured != true) return "Not connected"
-    val base = if (status.ready) "Synced" else "Connected (starting…)"
-    return base + pendingSuffix(outbox)
-}
-
-/** `" · N to upload, M to delete"` when the outbox has pending work, else empty. */
-private fun pendingSuffix(outbox: BridgeOutboxSnapshot?): String {
-    if (outbox == null) return ""
-    val parts = buildList {
-        if (outbox.pendingUploads > 0u) add("${outbox.pendingUploads} to upload")
-        if (outbox.pendingDeletes > 0u) add("${outbox.pendingDeletes} to delete")
-    }
-    return if (parts.isEmpty()) "" else " · " + parts.joinToString(", ")
 }

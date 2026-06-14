@@ -44,6 +44,37 @@ final class SettingsModel {
         !working && !bucket.isEmpty && !region.isEmpty && !accessKey.isEmpty && !secretKey.isEmpty
     }
 
+    /// Whether a provider is configured (a Disconnect / Sync-now action makes
+    /// sense).
+    var isConnected: Bool {
+        status?.configured ?? false
+    }
+
+    /// The one-line status: the in-flight connect, then the configured/ready
+    /// state, with the pending outbox counts appended when there is work queued.
+    /// Composed here on the model from the booleans and counts the bridge provides
+    /// plus the local in-flight flag, so the view renders it directly.
+    var statusLine: String {
+        if working {
+            return "Connecting…"
+        }
+        guard let status, status.configured else {
+            return "Not connected"
+        }
+        let base = status.ready ? "Synced" : "Connected (starting…)"
+        return base + pendingSuffix
+    }
+
+    /// `" · N to upload, M to delete"` when the outbox has pending work, else
+    /// empty.
+    private var pendingSuffix: String {
+        guard let outbox else { return "" }
+        var parts: [String] = []
+        if outbox.pendingUploads > 0 { parts.append("\(outbox.pendingUploads) to upload") }
+        if outbox.pendingDeletes > 0 { parts.append("\(outbox.pendingDeletes) to delete") }
+        return parts.isEmpty ? "" : " · " + parts.joined(separator: ", ")
+    }
+
     /// Load the current sync status and outbox counts.
     func reload() {
         let handle = handle
@@ -112,6 +143,16 @@ final class SettingsModel {
             }.value
             working = false
             errorMessage = failure
+            reload()
+        }
+    }
+
+    /// Request an immediate sync cycle, then refresh the status so the outbox
+    /// counts reflect the drain. A no-op in the bridge when sync isn't connected.
+    func triggerSync() {
+        let handle = handle
+        Task {
+            await Task.detached { handle.triggerSync() }.value
             reload()
         }
     }

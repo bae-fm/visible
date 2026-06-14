@@ -14,7 +14,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Status") {
-                Text(statusLine)
+                Text(model.statusLine)
                     .foregroundStyle(.secondary)
             }
 
@@ -43,7 +43,10 @@ struct SettingsView: View {
                 Button("Connect") { model.connect() }
                     .disabled(!model.canConnect)
 
-                if isConnected {
+                if model.isConnected {
+                    Button("Sync now") { model.triggerSync() }
+                        .disabled(model.working)
+
                     Button("Disconnect", role: .destructive) { model.disconnect() }
                         .disabled(model.working)
                 }
@@ -51,35 +54,5 @@ struct SettingsView: View {
         }
         .inlineNavigationTitle("Sync")
         .task { model.reload() }
-    }
-
-    /// Whether a provider is configured (a Disconnect action makes sense).
-    private var isConnected: Bool {
-        model.status?.configured ?? false
-    }
-
-    /// The one-line status: the in-flight connect, then the configured/ready
-    /// state, with the pending outbox counts appended when there is work queued.
-    /// Built from the booleans and counts the bridge already provides plus the
-    /// model's local in-flight flag — no domain re-derivation.
-    private var statusLine: String {
-        if model.working {
-            return "Connecting…"
-        }
-        guard let status = model.status, status.configured else {
-            return "Not connected"
-        }
-        let base = status.ready ? "Synced" : "Connected (starting…)"
-        return base + pendingSuffix
-    }
-
-    /// `" · N to upload, M to delete"` when the outbox has pending work, else
-    /// empty. The counts come pre-computed from the bridge.
-    private var pendingSuffix: String {
-        guard let outbox = model.outbox else { return "" }
-        var parts: [String] = []
-        if outbox.pendingUploads > 0 { parts.append("\(outbox.pendingUploads) to upload") }
-        if outbox.pendingDeletes > 0 { parts.append("\(outbox.pendingDeletes) to delete") }
-        return parts.isEmpty ? "" : " · " + parts.joined(separator: ", ")
     }
 }
