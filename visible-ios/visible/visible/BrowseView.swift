@@ -12,6 +12,8 @@ private let logger = Logger.visible("BrowseView")
 struct BrowseView: View {
     let onOpenChild: (String) -> Void
     let onPop: () -> Void
+    // Open the detail edit screen for a node id, pushed onto the browse stack.
+    let onOpenDetail: (String) -> Void
     // Open the search screen. Search spans the whole tree, so every level offers
     // it (unlike the root-only settings gear).
     let onOpenSearch: () -> Void
@@ -30,11 +32,13 @@ struct BrowseView: View {
         nodeId: String,
         onOpenChild: @escaping (String) -> Void,
         onPop: @escaping () -> Void,
+        onOpenDetail: @escaping (String) -> Void,
         onOpenSearch: @escaping () -> Void,
         onOpenSettings: (() -> Void)? = nil
     ) {
         self.onOpenChild = onOpenChild
         self.onPop = onPop
+        self.onOpenDetail = onOpenDetail
         self.onOpenSearch = onOpenSearch
         self.onOpenSettings = onOpenSettings
         _model = State(initialValue: BrowseModel(handle: handle, nodeId: nodeId))
@@ -53,6 +57,7 @@ struct BrowseView: View {
                     ToolbarItem(placement: .primaryAction) {
                         Menu {
                             NodeActionsMenu(
+                                onEdit: { onOpenDetail(node.id) },
                                 onRename: { model.openRename(node) },
                                 onDelete: { model.openDelete(node) },
                                 // The root house has no parent and can't be deleted.
@@ -171,6 +176,7 @@ struct BrowseView: View {
                             child: child,
                             path: child.imageId.flatMap(model.imagePath),
                             onOpen: { onOpenChild(child.id) },
+                            onEdit: { onOpenDetail(child.id) },
                             onRename: { model.openRename(child) },
                             onDelete: { model.openDelete(child) }
                         )
