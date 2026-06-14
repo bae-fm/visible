@@ -264,6 +264,157 @@ impl From<CoreError> for BridgeError {
 mod tests {
     use super::*;
 
+    /// A node with every field set, so a conversion test can assert each one
+    /// passes through. `quantity` drives `quantity_badge`, so each test that
+    /// cares overrides it.
+    fn sample_node() -> Node {
+        Node {
+            id: "node-1".into(),
+            parent_id: Some("parent-1".into()),
+            name: Some("Lamp".into()),
+            position: 3,
+            image_id: Some("img-1".into()),
+            quantity: None,
+            notes: Some("a note".into()),
+            value_cents: Some(1299),
+            acquired_at: Some("2024-01-02".into()),
+            serial: Some("SN-1".into()),
+            barcode: Some("012345678905".into()),
+        }
+    }
+
+    #[test]
+    fn node_passes_its_fields_through_and_drops_position() {
+        let bridge = BridgeNode::from(sample_node());
+        assert_eq!(bridge.id, "node-1");
+        assert_eq!(bridge.parent_id.as_deref(), Some("parent-1"));
+        assert_eq!(bridge.name.as_deref(), Some("Lamp"));
+        assert_eq!(bridge.image_id.as_deref(), Some("img-1"));
+    }
+
+    /// The root house is parentless and untitled photo-first children carry no
+    /// name; both surface as `None` across the boundary.
+    #[test]
+    fn node_carries_absent_parent_and_name_as_none() {
+        let node = Node {
+            parent_id: None,
+            name: None,
+            image_id: None,
+            ..sample_node()
+        };
+        let bridge = BridgeNode::from(node);
+        assert!(bridge.parent_id.is_none());
+        assert!(bridge.name.is_none());
+        assert!(bridge.image_id.is_none());
+    }
+
+    /// The card shows `×N` only for a node that stands for more than one thing.
+    /// A quantity of `None` or `1` is a single item with no badge; greater than
+    /// one renders the count. The conversion calls [`Node::quantity_badge`], so
+    /// this pins the boundary's view of that derivation across the three cases.
+    #[test]
+    fn node_quantity_badge_only_for_more_than_one() {
+        let badge = |quantity| {
+            BridgeNode::from(Node {
+                quantity,
+                ..sample_node()
+            })
+            .quantity_badge
+        };
+        assert_eq!(badge(None), None);
+        assert_eq!(badge(Some(1)), None);
+        assert_eq!(badge(Some(4)), Some("×4".into()));
+    }
+
+    #[test]
+    fn node_detail_carries_the_node_attributes_and_tags() {
+        let detail = NodeDetail {
+            node: Node {
+                quantity: Some(2),
+                ..sample_node()
+            },
+            tags: vec!["fragile".into(), "blue".into()],
+        };
+        let bridge = BridgeNodeDetail::from(detail);
+        assert_eq!(bridge.id, "node-1");
+        assert_eq!(bridge.parent_id.as_deref(), Some("parent-1"));
+        assert_eq!(bridge.name.as_deref(), Some("Lamp"));
+        assert_eq!(bridge.image_id.as_deref(), Some("img-1"));
+        assert_eq!(bridge.quantity, Some(2));
+        assert_eq!(bridge.notes.as_deref(), Some("a note"));
+        assert_eq!(bridge.value_cents, Some(1299));
+        assert_eq!(bridge.acquired_at.as_deref(), Some("2024-01-02"));
+        assert_eq!(bridge.serial.as_deref(), Some("SN-1"));
+        assert_eq!(bridge.barcode.as_deref(), Some("012345678905"));
+        assert_eq!(bridge.tags, vec!["fragile".to_string(), "blue".into()]);
+    }
+
+    /// A fresh node carries no attributes and no tags; every optional attribute
+    /// is `None` and the tag list is empty across the boundary.
+    #[test]
+    fn node_detail_with_no_attributes_or_tags() {
+        let detail = NodeDetail {
+            node: Node {
+                name: None,
+                quantity: None,
+                notes: None,
+                value_cents: None,
+                acquired_at: None,
+                serial: None,
+                barcode: None,
+                ..sample_node()
+            },
+            tags: vec![],
+        };
+        let bridge = BridgeNodeDetail::from(detail);
+        assert!(bridge.quantity.is_none());
+        assert!(bridge.notes.is_none());
+        assert!(bridge.value_cents.is_none());
+        assert!(bridge.acquired_at.is_none());
+        assert!(bridge.serial.is_none());
+        assert!(bridge.barcode.is_none());
+        assert!(bridge.tags.is_empty());
+    }
+
+    #[test]
+    fn search_hit_carries_the_match_path_and_label() {
+        let hit = SearchHit {
+            node: sample_node(),
+            path: vec![
+                Node {
+                    id: "root".into(),
+                    parent_id: None,
+                    name: Some("Home".into()),
+                    ..sample_node()
+                },
+                sample_node(),
+            ],
+            path_label: "Home › Living Room".into(),
+        };
+        let bridge = BridgeSearchResult::from(hit);
+        assert_eq!(bridge.node.id, "node-1");
+        assert_eq!(bridge.path.len(), 2);
+        assert_eq!(bridge.path[0].id, "root");
+        assert!(bridge.path[0].parent_id.is_none());
+        assert_eq!(bridge.path[1].id, "node-1");
+        assert_eq!(bridge.path_label, "Home › Living Room");
+    }
+
+    #[test]
+    fn member_carries_short_pubkey_role_and_is_self() {
+        let member = Member {
+            pubkey: "deadbeef".repeat(8),
+            short_pubkey: "deadbeef…deadbeef".into(),
+            role: MemberRole::Follower,
+            is_self: true,
+        };
+        let bridge = BridgeMember::from(member);
+        assert_eq!(bridge.pubkey, "deadbeef".repeat(8));
+        assert_eq!(bridge.short_pubkey, "deadbeef…deadbeef");
+        assert_eq!(bridge.role, BridgeMemberRole::Follower);
+        assert!(bridge.is_self);
+    }
+
     /// Each variant maps to its same-named counterpart in BOTH directions. The
     /// mapping is the FFI boundary the members list (core → bridge) and
     /// `invite_member` (bridge → core) cross separately, so a swapped pair would
@@ -281,5 +432,96 @@ mod tests {
             assert_eq!(BridgeMemberRole::from(core.clone()), bridge);
             assert_eq!(MemberRole::from(bridge), core);
         }
+    }
+
+    #[test]
+    fn sync_status_carries_configured_and_ready() {
+        let bridge = BridgeSyncStatus::from(SyncStatusInfo {
+            configured: true,
+            ready: false,
+        });
+        assert!(bridge.configured);
+        assert!(!bridge.ready);
+    }
+
+    #[test]
+    fn outbox_snapshot_carries_the_pending_delete_count() {
+        let bridge = BridgeOutboxSnapshot::from(OutboxSnapshot { pending_deletes: 5 });
+        assert_eq!(bridge.pending_deletes, 5);
+    }
+
+    /// The settings form's S3 fields map into core's config shape. The optional
+    /// endpoint and key prefix pass through as-is — the form has already mapped a
+    /// blank box to `None` before constructing the bridge config.
+    #[test]
+    fn s3_config_passes_required_and_optional_fields() {
+        let config = BridgeS3Config {
+            bucket: "my-bucket".into(),
+            region: "us-east-1".into(),
+            endpoint: Some("https://s3.example.com".into()),
+            key_prefix: Some("home/".into()),
+            access_key: "AKIA".into(),
+            secret_key: "secret".into(),
+        };
+        let core = S3ConfigData::from(config);
+        assert_eq!(core.bucket, "my-bucket");
+        assert_eq!(core.region, "us-east-1");
+        assert_eq!(core.endpoint.as_deref(), Some("https://s3.example.com"));
+        assert_eq!(core.key_prefix.as_deref(), Some("home/"));
+        assert_eq!(core.access_key, "AKIA");
+        assert_eq!(core.secret_key, "secret");
+    }
+
+    /// AWS S3 needs no endpoint and a bucket not shared across libraries needs no
+    /// prefix; both arrive as `None` and pass through absent.
+    #[test]
+    fn s3_config_without_endpoint_or_prefix() {
+        let core = S3ConfigData::from(BridgeS3Config {
+            bucket: "my-bucket".into(),
+            region: "us-east-1".into(),
+            endpoint: None,
+            key_prefix: None,
+            access_key: "AKIA".into(),
+            secret_key: "secret".into(),
+        });
+        assert!(core.endpoint.is_none());
+        assert!(core.key_prefix.is_none());
+    }
+
+    /// Each core error variant maps to the bridge error case the generated
+    /// Swift/Kotlin switch on. `Io` has no bridge case of its own — it folds into
+    /// `Internal` — so the two `Internal` sources are asserted separately. The
+    /// message rides along on every variant.
+    #[test]
+    fn core_error_maps_each_variant_to_its_bridge_case() {
+        assert!(matches!(
+            BridgeError::from(CoreError::NotFound("missing".into())),
+            BridgeError::NotFound { msg } if msg == "missing"
+        ));
+        assert!(matches!(
+            BridgeError::from(CoreError::Database("db".into())),
+            BridgeError::Database { msg } if msg == "db"
+        ));
+        assert!(matches!(
+            BridgeError::from(CoreError::Config("cfg".into())),
+            BridgeError::Config { msg } if msg == "cfg"
+        ));
+        assert!(matches!(
+            BridgeError::from(CoreError::Keyring("key".into())),
+            BridgeError::Keyring { msg } if msg == "key"
+        ));
+        assert!(matches!(
+            BridgeError::from(CoreError::Sync("sync".into())),
+            BridgeError::Sync { msg } if msg == "sync"
+        ));
+        assert!(matches!(
+            BridgeError::from(CoreError::Internal("internal".into())),
+            BridgeError::Internal { msg } if msg == "internal"
+        ));
+        // Io has no bridge case of its own; it folds into Internal.
+        assert!(matches!(
+            BridgeError::from(CoreError::Io("io".into())),
+            BridgeError::Internal { msg } if msg == "io"
+        ));
     }
 }
