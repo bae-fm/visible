@@ -3,12 +3,16 @@
 //! only — no logic.
 
 use visible_core::{
-    CoreError, LibraryInfo, Member, MemberRole, Node, OutboxSnapshot, S3ConfigData, SearchHit,
-    SyncStatusInfo,
+    CoreError, LibraryInfo, Member, MemberRole, Node, NodeDetail, OutboxSnapshot, S3ConfigData,
+    SearchHit, SyncStatusInfo,
 };
 
-/// A node as the UI consumes it. No `position` — the bridge returns children
-/// already ordered, so the UI iterates in order rather than re-sorting.
+/// A node as the browse list consumes it. No `position` — the bridge returns
+/// children already ordered, so the UI iterates in order rather than re-sorting.
+/// `quantity` is the only attribute the list needs: the card shows a count badge
+/// when a node stands for more than one thing, so the list carries it to avoid a
+/// per-card detail fetch. The rest of the attributes load through
+/// [`BridgeNodeDetail`] on the edit screen.
 #[derive(uniffi::Record)]
 pub struct BridgeNode {
     pub id: String,
@@ -17,6 +21,9 @@ pub struct BridgeNode {
     /// "Untitled" fallback for `None`.
     pub name: Option<String>,
     pub image_id: Option<String>,
+    /// How many of this thing the node stands for, or `None` for a single item.
+    /// The card shows a "×N" badge only when this is set and greater than one.
+    pub quantity: Option<i64>,
 }
 
 impl From<Node> for BridgeNode {
@@ -26,6 +33,47 @@ impl From<Node> for BridgeNode {
             parent_id: node.parent_id,
             name: node.name,
             image_id: node.image_id,
+            quantity: node.quantity,
+        }
+    }
+}
+
+/// A node with all of its editable attributes and tags, for the edit screen.
+/// The edit form seeds its fields from these and writes them back through
+/// `update_node_attributes` / `add_node_tag` / `remove_node_tag`. Values stay in
+/// their stored form — `value_cents` in cents, `acquired_at` as the ISO
+/// `YYYY-MM-DD` string — and the form converts to its editable representation
+/// (dollars, a date picker) on the model, not across this boundary.
+#[derive(uniffi::Record)]
+pub struct BridgeNodeDetail {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub name: Option<String>,
+    pub image_id: Option<String>,
+    pub quantity: Option<i64>,
+    pub notes: Option<String>,
+    pub value_cents: Option<i64>,
+    pub acquired_at: Option<String>,
+    pub serial: Option<String>,
+    pub barcode: Option<String>,
+    pub tags: Vec<String>,
+}
+
+impl From<NodeDetail> for BridgeNodeDetail {
+    fn from(detail: NodeDetail) -> Self {
+        let node = detail.node;
+        Self {
+            id: node.id,
+            parent_id: node.parent_id,
+            name: node.name,
+            image_id: node.image_id,
+            quantity: node.quantity,
+            notes: node.notes,
+            value_cents: node.value_cents,
+            acquired_at: node.acquired_at,
+            serial: node.serial,
+            barcode: node.barcode,
+            tags: detail.tags,
         }
     }
 }

@@ -6,8 +6,8 @@
 use visible_core::RunningApp;
 
 use crate::types::{
-    BridgeError, BridgeMember, BridgeMemberRole, BridgeNode, BridgeOutboxSnapshot, BridgeS3Config,
-    BridgeSearchResult, BridgeSyncStatus,
+    BridgeError, BridgeMember, BridgeMemberRole, BridgeNode, BridgeNodeDetail,
+    BridgeOutboxSnapshot, BridgeS3Config, BridgeSearchResult, BridgeSyncStatus,
 };
 
 #[derive(uniffi::Object)]
@@ -82,6 +82,56 @@ impl AppHandle {
             .app
             .runtime
             .block_on(self.app.inventory.set_image(&id, bytes))?)
+    }
+
+    /// A node with its editable attributes and tags, for the edit screen.
+    pub fn node_detail(&self, id: String) -> Result<BridgeNodeDetail, BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.inventory.detail(&id))?
+            .into())
+    }
+
+    /// Set a node's attributes in one write. Each field is optional; a blank text
+    /// field maps to absence — core normalizes it to NULL.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_node_attributes(
+        &self,
+        id: String,
+        quantity: Option<i64>,
+        notes: Option<String>,
+        value_cents: Option<i64>,
+        acquired_at: Option<String>,
+        serial: Option<String>,
+        barcode: Option<String>,
+    ) -> Result<(), BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.inventory.set_attributes(
+                &id,
+                quantity,
+                notes,
+                value_cents,
+                acquired_at,
+                serial,
+                barcode,
+            ))?)
+    }
+
+    pub fn add_node_tag(&self, id: String, tag: String) -> Result<(), BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.inventory.add_tag(&id, tag))?)
+    }
+
+    pub fn remove_node_tag(&self, id: String, tag: String) -> Result<(), BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.inventory.remove_tag(&id, tag))?)
     }
 
     pub fn image_path_if_exists(&self, image_id: String) -> Option<String> {
