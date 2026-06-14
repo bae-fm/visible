@@ -12,8 +12,9 @@ enum SessionState {
     /// session never returns here (switching homes replaces in place).
     case onboarding
     case failed(String)
-    /// The open library: its handle and the id of its root house node.
-    case open(handle: AppHandle, rootId: String)
+    /// The open library: its handle, the id of its root house node, and its
+    /// library id (shown in Settings ▸ About for support).
+    case open(handle: AppHandle, rootId: String, libraryId: String)
 }
 
 /// Holds the one ``AppHandle`` for the process and publishes the current
@@ -42,7 +43,7 @@ final class AppSession {
     /// is never cached, so the root view's Retry calls this again.
     func open() async {
         if let current {
-            state = .open(handle: current.handle, rootId: current.rootId)
+            state = .open(handle: current.handle, rootId: current.rootId, libraryId: current.libraryId)
             return
         }
 
@@ -75,7 +76,7 @@ final class AppSession {
         switch opened {
         case let .success(.some((handle, rootId, libraryId))):
             current = (handle, rootId, libraryId)
-            state = .open(handle: handle, rootId: rootId)
+            state = .open(handle: handle, rootId: rootId, libraryId: libraryId)
         case .success(.none):
             state = .onboarding
         case let .failure(error):
@@ -143,7 +144,7 @@ final class AppSession {
         switch switched {
         case let .success((handle, rootId, libraryId)):
             current = (handle, rootId, libraryId)
-            state = .open(handle: handle, rootId: rootId)
+            state = .open(handle: handle, rootId: rootId, libraryId: libraryId)
             return nil
         case let .failure(error):
             logger.error("\(source.logLabel, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")

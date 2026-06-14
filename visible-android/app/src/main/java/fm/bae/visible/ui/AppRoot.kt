@@ -107,6 +107,7 @@ fun AppRoot(session: AppSession) {
             session = session,
             handle = s.handle,
             rootId = s.rootId,
+            libraryId = s.libraryId,
         )
     }
 }
@@ -118,7 +119,12 @@ fun AppRoot(session: AppSession) {
  * back pops; the start destination (the root house) can't pop.
  */
 @Composable
-private fun BrowseNavigation(session: AppSession, handle: AppHandle, rootId: String) {
+private fun BrowseNavigation(
+    session: AppSession,
+    handle: AppHandle,
+    rootId: String,
+    libraryId: String,
+) {
     // Re-key the controller + stack on the open library's root so a switch to a
     // joined home starts a new navigation stack rooted at the new house, with no
     // entries carried over from the replaced home.
@@ -206,9 +212,12 @@ private fun BrowseNavigation(session: AppSession, handle: AppHandle, rootId: Str
                 )
             }
             composable(route = ROUTE_SETTINGS) {
+                val appContext = LocalContext.current.applicationContext
                 val viewModel: SettingsViewModel = viewModel(
                     factory = viewModelFactory {
-                        initializer { SettingsViewModel(handle) }
+                        initializer {
+                            SettingsViewModel(handle, session, appContext, rootId, libraryId)
+                        }
                     },
                 )
                 SettingsScreen(

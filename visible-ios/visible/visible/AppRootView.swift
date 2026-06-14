@@ -21,8 +21,8 @@ struct AppRootView: View {
                     Button("Retry") { Task { await session.open() } }
                 }
                 .padding(24)
-            case let .open(handle, rootId):
-                BrowseNavigation(session: session, handle: handle, rootId: rootId)
+            case let .open(handle, rootId, libraryId):
+                BrowseNavigation(session: session, handle: handle, rootId: rootId, libraryId: libraryId)
                     // Re-key the stack on the open library's root so a switch to a
                     // joined home resets the navigation path to the new root.
                     .id(rootId)
@@ -39,6 +39,7 @@ private struct BrowseNavigation: View {
     let session: AppSession
     let handle: AppHandle
     let rootId: String
+    let libraryId: String
 
     @State private var path: [String] = []
     @State private var showSettings = false
@@ -70,7 +71,7 @@ private struct BrowseNavigation: View {
                 )
             }
             .navigationDestination(isPresented: $showSettings) {
-                SettingsView(handle: handle, session: session)
+                SettingsView(handle: handle, session: session, rootId: rootId, libraryId: libraryId)
             }
             .navigationDestination(isPresented: $showSearch) {
                 SearchView(handle: handle, onNavigate: navigate)

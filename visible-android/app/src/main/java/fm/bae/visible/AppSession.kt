@@ -35,8 +35,11 @@ sealed interface SessionState {
 
     data class Failed(val message: String) : SessionState
 
-    /** The open library: its handle and the id of its root house node. */
-    data class Open(val handle: AppHandle, val rootId: String) : SessionState
+    /**
+     * The open library: its handle, the id of its root house node, and its library
+     * id (shown in Settings ▸ About for support).
+     */
+    data class Open(val handle: AppHandle, val rootId: String, val libraryId: String) : SessionState
 }
 
 /**
@@ -105,7 +108,7 @@ class AppSession {
      */
     suspend fun open(context: Context) {
         current?.let {
-            _state.value = SessionState.Open(it.handle, it.rootId)
+            _state.value = SessionState.Open(it.handle, it.rootId, it.libraryId)
             return
         }
 
@@ -119,7 +122,7 @@ class AppSession {
                     val handle = initApp(dataDir, library.id)
                     val rootId = handle.rootNode().id
                     current = Current(handle, rootId, library.id)
-                    SessionState.Open(handle, rootId)
+                    SessionState.Open(handle, rootId, library.id)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -172,7 +175,7 @@ class AppSession {
                     removeLibrary(dataDir, previous.libraryId)
                 }
                 current = Current(handle, rootId, library.id)
-                _state.value = SessionState.Open(handle, rootId)
+                _state.value = SessionState.Open(handle, rootId, library.id)
                 null
             } catch (e: CancellationException) {
                 throw e

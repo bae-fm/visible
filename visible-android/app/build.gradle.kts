@@ -28,6 +28,9 @@ android {
 
     buildFeatures {
         compose = true
+        // Generates BuildConfig.VERSION_NAME / VERSION_CODE for the Settings ▸
+        // About line.
+        buildConfig = true
     }
 
     sourceSets {
