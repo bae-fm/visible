@@ -2,13 +2,14 @@ import SwiftUI
 
 /// One child node: its thumbnail and name, with a quantity badge over the
 /// thumbnail when the node stands for more than one thing. Tapping opens it; a
-/// long-press context menu offers Edit details, Rename, and Delete.
+/// long-press context menu offers Edit details, Rename, Move, and Delete.
 struct ChildCard: View {
     let child: BridgeNode
     let path: String?
     let onOpen: () -> Void
     let onEdit: () -> Void
     let onRename: () -> Void
+    let onMove: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -32,8 +33,9 @@ struct ChildCard: View {
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .contextMenu {
-            // A child always has a parent, so it can always be deleted.
-            NodeActionsMenu(onEdit: onEdit, onRename: onRename, onDelete: onDelete, canDelete: true)
+            // A child always has a parent, so it is never the root: Move and
+            // Delete both apply.
+            NodeActionsMenu(onEdit: onEdit, onRename: onRename, onMove: onMove, onDelete: onDelete, isRoot: false)
         }
     }
 }

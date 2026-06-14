@@ -21,11 +21,17 @@ struct BrowseView: View {
     // shows there and nowhere deeper; nil leaves the gear off.
     let onOpenSettings: (() -> Void)?
 
+    private let handle: AppHandle
+
     @State private var model: BrowseModel
     // Which capture site opened the camera, routing the captured photo to the
     // right model method: the header replaces this node's photo, the + adds a
     // new child carrying the photo. nil while the camera is closed.
     @State private var cameraIntent: CameraIntent?
+    // The node whose move-destination picker is open, presented over this view;
+    // nil while no picker is shown. Holds the node id (an Identifiable wrapper so
+    // it drives `.sheet(item:)`) because the picker moves a specific node.
+    @State private var movingNode: MovingNode?
 
     init(
         handle: AppHandle,
@@ -36,6 +42,7 @@ struct BrowseView: View {
         onOpenSearch: @escaping () -> Void,
         onOpenSettings: (() -> Void)? = nil
     ) {
+        self.handle = handle
         self.onOpenChild = onOpenChild
         self.onPop = onPop
         self.onOpenDetail = onOpenDetail
@@ -59,9 +66,11 @@ struct BrowseView: View {
                             NodeActionsMenu(
                                 onEdit: { onOpenDetail(node.id) },
                                 onRename: { model.openRename(node) },
+                                onMove: { movingNode = MovingNode(id: node.id) },
                                 onDelete: { model.openDelete(node) },
-                                // The root house has no parent and can't be deleted.
-                                canDelete: node.parentId != nil
+                                // The root house has no parent: it can be neither
+                                // moved nor deleted.
+                                isRoot: node.parentId == nil
                             )
                         } label: {
                             Image(systemName: "ellipsis.circle")
@@ -103,6 +112,18 @@ struct BrowseView: View {
             }
             .sheet(item: $model.dialog) { dialog in
                 dialogContent(dialog)
+            }
+            .sheet(item: $movingNode) { moving in
+                MovePickerView(
+                    handle: handle,
+                    movingId: moving.id,
+                    onDismiss: {
+                        movingNode = nil
+                        // The moved node may have left this level, so reload to
+                        // reflect the new tree.
+                        model.reload()
+                    }
+                )
             }
     }
 
@@ -178,6 +199,7 @@ struct BrowseView: View {
                             onOpen: { onOpenChild(child.id) },
                             onEdit: { onOpenDetail(child.id) },
                             onRename: { model.openRename(child) },
+                            onMove: { movingNode = MovingNode(id: child.id) },
                             onDelete: { model.openDelete(child) }
                         )
                     }
@@ -215,4 +237,11 @@ private enum CameraIntent: Identifiable {
     case newChild
 
     var id: Self { self }
+}
+
+/// The node whose move-destination picker is open, wrapping its id so it drives
+/// `.sheet(item:)` (which needs an `Identifiable`). The id is both the node id
+/// and the sheet's identity.
+private struct MovingNode: Identifiable {
+    let id: String
 }
