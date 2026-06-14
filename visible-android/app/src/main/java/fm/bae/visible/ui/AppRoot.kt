@@ -81,8 +81,8 @@ fun AppRoot(session: AppSession) {
 @Composable
 private fun BrowseNavigation(session: AppSession, handle: AppHandle, rootId: String) {
     // Re-key the controller + stack on the open library's root so a switch to a
-    // joined home starts a fresh stack rooted at the new house, with no entries
-    // carried over from the replaced home.
+    // joined home starts a new navigation stack rooted at the new house, with no
+    // entries carried over from the replaced home.
     key(rootId) {
         val navController = rememberNavController()
         NavHost(navController = navController, startDestination = browseRoute(rootId)) {

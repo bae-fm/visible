@@ -27,7 +27,8 @@ final class SharingModel {
 
     /// Whether the sync loop is running. The members list, inviting, and the
     /// restore code require a connected library; the identity code and joining /
-    /// restoring a home do not. nil until the first load.
+    /// restoring a home do not. Defaults false, so those actions stay hidden
+    /// until the first status load confirms a connected library.
     private(set) var connected = false
 
     /// This device's identity code, sent to a home's owner so they can invite
@@ -55,10 +56,10 @@ final class SharingModel {
 
     /// The member the owner is confirming a remove of; nil when no confirm is up.
     /// Set by ``confirmRemove`` and cleared on confirm or dismiss.
-    var pendingRemoval: BridgeMember?
+    private(set) var pendingRemoval: BridgeMember?
     /// The join or restore the user is confirming (it replaces the current home);
     /// nil when no confirm is up.
-    var pendingSwitch: HomeSwitch?
+    private(set) var pendingSwitch: HomeSwitch?
 
     /// A bridge call is in flight (disables the action buttons). Local UI state
     /// for the in-flight gesture, not a domain value.
@@ -251,16 +252,9 @@ final class SharingModel {
 
 /// A pending home switch the user is confirming: joining from an invite code, or
 /// restoring from a restore code. Both replace the current home on this device.
-enum HomeSwitch: Identifiable {
+enum HomeSwitch {
     case join(String)
     case restore(String)
-
-    var id: String {
-        switch self {
-        case let .join(code): "join-\(code)"
-        case let .restore(code): "restore-\(code)"
-        }
-    }
 
     /// Write the new library to disk via the joiner-side core call for this
     /// source, returning its identity for the session to open. Runs off the main

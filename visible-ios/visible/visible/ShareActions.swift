@@ -1,4 +1,4 @@
-import SwiftUI
+import os.log
 #if os(iOS)
 import UIKit
 #else
@@ -6,9 +6,9 @@ import AppKit
 #endif
 
 /// Copy and share affordances for the sharing codes. Copy writes to the system
-/// pasteboard on both platforms; share presents the system share sheet on iOS
-/// and falls back to copy on macOS (the plan keeps QR/native macOS share out of
-/// this screen — codes are copy/paste text).
+/// pasteboard on both platforms; share presents the system share sheet on iOS.
+/// macOS has no separate share action — the codes are copy/paste text, so Copy
+/// is the only affordance there.
 @MainActor
 enum ShareActions {
     /// Write `text` to the system pasteboard.
@@ -31,6 +31,7 @@ enum ShareActions {
               let root = scene.keyWindow?.rootViewController else {
             // No active window to anchor the sheet — copy so the action still
             // gives the user the code.
+            Logger.visible("ShareActions").warning("no foreground window to anchor the share sheet; copied instead")
             copy(text)
             return
         }

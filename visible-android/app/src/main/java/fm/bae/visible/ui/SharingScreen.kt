@@ -34,7 +34,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
-import uniffi.visible_bridge.BridgeMember
 import uniffi.visible_bridge.BridgeMemberRole
 
 /**
@@ -180,11 +179,7 @@ private fun InviteSection(viewModel: SharingViewModel) {
             modifier = Modifier.fillMaxWidth(),
         )
 
-        RolePicker(
-            selected = viewModel.inviteRole,
-            onSelect = { viewModel.inviteRole = it },
-            label = { viewModel.roleName(it) },
-        )
+        RolePicker(viewModel)
 
         Button(
             onClick = viewModel::invite,
@@ -295,22 +290,19 @@ private fun MemberRow(
 
 /** The grantable-role picker (Member / Follower — not Owner). */
 @Composable
-private fun RolePicker(
-    selected: BridgeMemberRole,
-    onSelect: (BridgeMemberRole) -> Unit,
-    label: (BridgeMemberRole) -> String,
-) {
+private fun RolePicker(viewModel: SharingViewModel) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         listOf(BridgeMemberRole.MEMBER, BridgeMemberRole.FOLLOWER).forEach { role ->
+            val selected = viewModel.inviteRole == role
             Row(
                 modifier = Modifier.selectable(
-                    selected = selected == role,
-                    onClick = { onSelect(role) },
+                    selected = selected,
+                    onClick = { viewModel.inviteRole = role },
                 ).padding(end = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                RadioButton(selected = selected == role, onClick = { onSelect(role) })
-                Text(label(role))
+                RadioButton(selected = selected, onClick = { viewModel.inviteRole = role })
+                Text(viewModel.roleName(role))
             }
         }
     }
