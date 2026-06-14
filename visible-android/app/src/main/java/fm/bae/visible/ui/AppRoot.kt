@@ -36,11 +36,14 @@ import uniffi.visible_bridge.BridgeNode
 
 private const val ARG_NODE_ID = "nodeId"
 private const val ROUTE_BROWSE = "browse/{$ARG_NODE_ID}"
+private const val ROUTE_NODE_DETAIL = "nodeDetail/{$ARG_NODE_ID}"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_SHARING = "sharing"
 private const val ROUTE_SEARCH = "search"
 
 private fun browseRoute(nodeId: String) = "browse/$nodeId"
+
+private fun nodeDetailRoute(nodeId: String) = "nodeDetail/$nodeId"
 
 /**
  * Land the browse stack on a searched node so the node's back button walks up its
@@ -128,6 +131,7 @@ private fun BrowseNavigation(session: AppSession, handle: AppHandle, rootId: Str
                     canPop = navController.previousBackStackEntry != null,
                     onPop = { navController.popBackStack() },
                     onOpenChild = { childId -> navController.navigate(browseRoute(childId)) },
+                    onOpenDetail = { detailId -> navController.navigate(nodeDetailRoute(detailId)) },
                     onOpenSearch = { navController.navigate(ROUTE_SEARCH) },
                     // The sync gear lives on the root house only.
                     onOpenSettings = if (nodeId == rootId) {
@@ -135,6 +139,24 @@ private fun BrowseNavigation(session: AppSession, handle: AppHandle, rootId: Str
                     } else {
                         null
                     },
+                )
+            }
+            composable(
+                route = ROUTE_NODE_DETAIL,
+                arguments = listOf(navArgument(ARG_NODE_ID) { type = NavType.StringType }),
+            ) { entry ->
+                val viewModel: NodeDetailViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer {
+                            val nodeId = entry.arguments?.getString(ARG_NODE_ID)
+                                ?: error("nodeDetail destination is missing its $ARG_NODE_ID argument")
+                            NodeDetailViewModel(handle, nodeId)
+                        }
+                    },
+                )
+                NodeDetailScreen(
+                    viewModel = viewModel,
+                    onPop = { navController.popBackStack() },
                 )
             }
             composable(route = ROUTE_SEARCH) {

@@ -48,6 +48,8 @@ fun BrowseScreen(
     canPop: Boolean,
     onPop: () -> Unit,
     onOpenChild: (String) -> Unit,
+    // Open the detail edit screen for a node id, pushed onto the browse stack.
+    onOpenDetail: (String) -> Unit,
     // Open the search screen. Search spans the whole tree, so every level offers
     // it (unlike the root-only settings gear).
     onOpenSearch: () -> Unit,
@@ -99,6 +101,7 @@ fun BrowseScreen(
                         }
                         NodeOverflowMenu(
                             node = loaded.node,
+                            onEdit = { onOpenDetail(loaded.node.id) },
                             onRename = { viewModel.openRename(loaded.node) },
                             onDelete = { viewModel.openDelete(loaded.node) },
                         )
@@ -134,6 +137,7 @@ fun BrowseScreen(
                     children = content.children,
                     onTakePhoto = takeNodePhoto,
                     onOpenChild = onOpenChild,
+                    onOpenDetail = onOpenDetail,
                 )
             }
         }
@@ -162,6 +166,7 @@ private fun LoadedContent(
     children: List<BridgeNode>,
     onTakePhoto: () -> Unit,
     onOpenChild: (String) -> Unit,
+    onOpenDetail: (String) -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -196,6 +201,7 @@ private fun LoadedContent(
                     child = child,
                     path = child.imageId?.let(viewModel::imagePath),
                     onOpen = { onOpenChild(child.id) },
+                    onEdit = { onOpenDetail(child.id) },
                     onRename = { viewModel.openRename(child) },
                     onDelete = { viewModel.openDelete(child) },
                 )
@@ -207,6 +213,7 @@ private fun LoadedContent(
 @Composable
 private fun NodeOverflowMenu(
     node: BridgeNode,
+    onEdit: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -217,6 +224,7 @@ private fun NodeOverflowMenu(
     NodeActionsMenu(
         expanded = expanded,
         onDismiss = { expanded = false },
+        onEdit = onEdit,
         onRename = onRename,
         onDelete = onDelete,
         // The root house has no parent and can't be deleted.
