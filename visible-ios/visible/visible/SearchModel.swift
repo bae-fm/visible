@@ -63,7 +63,10 @@ final class SearchModel {
                 do {
                     return .hits(try handle.search(query: query))
                 } catch {
-                    logger.error("searching for \(query, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                    // The query is private inventory content (a passport, a
+                    // serial number), so it stays out of the log; the error is
+                    // the diagnostic part.
+                    logger.error("search failed: \(error.localizedDescription, privacy: .public)")
                     return .failed(error.localizedDescription)
                 }
             }.value

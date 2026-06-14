@@ -87,7 +87,10 @@ class SearchViewModel(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Log.e(TAG, "searching for $query failed", e)
+                    // The query is private inventory content (a passport, a
+                    // serial number), so it stays out of the log; the exception
+                    // is the diagnostic part.
+                    Log.e(TAG, "search failed", e)
                     SearchState.Failed(e.message ?: e.toString())
                 }
             }
