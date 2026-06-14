@@ -74,8 +74,10 @@ pub fn init_keyring() {
 /// an in-memory store for the OS keyring, service set to "visible" to match
 /// production. Genuinely set-once — the mock store is installed on the first call
 /// and kept for the rest of the process. Replacing it on a later call would wipe
-/// entries other parallel tests already wrote (one process-global namespace);
-/// entries stay isolated by library id instead.
+/// entries other parallel tests already wrote (one process-global namespace):
+/// per-library entries (the encryption key, cloud credentials) are keyed by
+/// library id, but the user identity keypair is a single global account shared
+/// across libraries, so keeping the store keeps both stable.
 #[cfg(test)]
 pub fn install_test_keyring() {
     use std::sync::Once;
