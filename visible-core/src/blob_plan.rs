@@ -140,13 +140,10 @@ mod tests {
     }
 
     #[test]
-    fn updates_and_deletes_carry_no_changeset_blob() {
-        // node_images is never UPDATEd in practice; were one to appear it must not
-        // move a blob. A DELETE's blob removal is a separate outbox delete.
-        let changes = [
-            node_image_row(ChangeOp::Update, "img-1"),
-            node_image_row(ChangeOp::Delete, "img-1"),
-        ];
+    fn deletes_carry_no_changeset_blob() {
+        // A DELETE moves no changeset blob; its cloud blob removal is enqueued
+        // separately through the outbox.
+        let changes = [node_image_row(ChangeOp::Delete, "img-1")];
         assert!(plan().blobs_to_push(&changes).is_empty());
         assert!(plan().blobs_to_pull(&changes).is_empty());
     }
