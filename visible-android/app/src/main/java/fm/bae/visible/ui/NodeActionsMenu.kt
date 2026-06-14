@@ -6,10 +6,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 
 /**
- * The Edit details / Rename / Delete menu shown for a node, both from the current
- * node's overflow button and from a child card's long-press. Delete is omitted
- * when [canDelete] is false (the root house has no parent and can't be deleted).
- * Each action dismisses the menu before running.
+ * The Edit details / Rename / Move / Delete menu shown for a node, both from the
+ * current node's overflow button and from a child card's long-press. Move and
+ * Delete are omitted when [isRoot] is true — the root house has no parent, so it
+ * can be neither re-parented nor deleted. Each action dismisses the menu before
+ * running.
  */
 @Composable
 fun NodeActionsMenu(
@@ -17,8 +18,9 @@ fun NodeActionsMenu(
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onRename: () -> Unit,
+    onMove: () -> Unit,
     onDelete: () -> Unit,
-    canDelete: Boolean,
+    isRoot: Boolean,
 ) {
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         DropdownMenuItem(
@@ -35,7 +37,14 @@ fun NodeActionsMenu(
                 onRename()
             },
         )
-        if (canDelete) {
+        if (!isRoot) {
+            DropdownMenuItem(
+                text = { Text("Move") },
+                onClick = {
+                    onDismiss()
+                    onMove()
+                },
+            )
             DropdownMenuItem(
                 text = { Text("Delete") },
                 onClick = {

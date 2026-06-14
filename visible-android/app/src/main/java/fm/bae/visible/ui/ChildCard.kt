@@ -25,7 +25,7 @@ import uniffi.visible_bridge.BridgeNode
 /**
  * One child node: its thumbnail and name, with a quantity badge over the
  * thumbnail when the node stands for more than one thing. Tapping opens it;
- * long-pressing opens an Edit details / Rename / Delete menu.
+ * long-pressing opens an Edit details / Rename / Move / Delete menu.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -35,6 +35,7 @@ fun ChildCard(
     onOpen: () -> Unit,
     onEdit: () -> Unit,
     onRename: () -> Unit,
+    onMove: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -70,8 +71,11 @@ fun ChildCard(
                 onDismiss = { menuOpen = false },
                 onEdit = onEdit,
                 onRename = onRename,
+                onMove = onMove,
                 onDelete = onDelete,
-                canDelete = true,
+                // A child always has a parent, so it is never the root: Move and
+                // Delete both apply.
+                isRoot = false,
             )
         }
     }

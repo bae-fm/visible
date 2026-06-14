@@ -35,8 +35,10 @@ import uniffi.visible_bridge.AppHandle
 import uniffi.visible_bridge.BridgeNode
 
 private const val ARG_NODE_ID = "nodeId"
+private const val ARG_MOVING_ID = "movingId"
 private const val ROUTE_BROWSE = "browse/{$ARG_NODE_ID}"
 private const val ROUTE_NODE_DETAIL = "nodeDetail/{$ARG_NODE_ID}"
+private const val ROUTE_MOVE = "move/{$ARG_MOVING_ID}"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_SHARING = "sharing"
 private const val ROUTE_SEARCH = "search"
@@ -44,6 +46,8 @@ private const val ROUTE_SEARCH = "search"
 private fun browseRoute(nodeId: String) = "browse/$nodeId"
 
 private fun nodeDetailRoute(nodeId: String) = "nodeDetail/$nodeId"
+
+private fun moveRoute(movingId: String) = "move/$movingId"
 
 /**
  * Land the browse stack on a searched node so the node's back button walks up its
@@ -132,6 +136,7 @@ private fun BrowseNavigation(session: AppSession, handle: AppHandle, rootId: Str
                     onPop = { navController.popBackStack() },
                     onOpenChild = { childId -> navController.navigate(browseRoute(childId)) },
                     onOpenDetail = { detailId -> navController.navigate(nodeDetailRoute(detailId)) },
+                    onOpenMove = { movingId -> navController.navigate(moveRoute(movingId)) },
                     onOpenSearch = { navController.navigate(ROUTE_SEARCH) },
                     // The sync gear lives on the root house only.
                     onOpenSettings = if (nodeId == rootId) {
@@ -155,6 +160,24 @@ private fun BrowseNavigation(session: AppSession, handle: AppHandle, rootId: Str
                     },
                 )
                 NodeDetailScreen(
+                    viewModel = viewModel,
+                    onPop = { navController.popBackStack() },
+                )
+            }
+            composable(
+                route = ROUTE_MOVE,
+                arguments = listOf(navArgument(ARG_MOVING_ID) { type = NavType.StringType }),
+            ) { entry ->
+                val viewModel: MovePickerViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer {
+                            val movingId = entry.arguments?.getString(ARG_MOVING_ID)
+                                ?: error("move destination is missing its $ARG_MOVING_ID argument")
+                            MovePickerViewModel(handle, movingId)
+                        }
+                    },
+                )
+                MovePickerScreen(
                     viewModel = viewModel,
                     onPop = { navController.popBackStack() },
                 )

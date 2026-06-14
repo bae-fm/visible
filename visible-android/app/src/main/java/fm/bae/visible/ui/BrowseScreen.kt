@@ -50,6 +50,8 @@ fun BrowseScreen(
     onOpenChild: (String) -> Unit,
     // Open the detail edit screen for a node id, pushed onto the browse stack.
     onOpenDetail: (String) -> Unit,
+    // Open the destination picker to move a node id under a new parent.
+    onOpenMove: (String) -> Unit,
     // Open the search screen. Search spans the whole tree, so every level offers
     // it (unlike the root-only settings gear).
     onOpenSearch: () -> Unit,
@@ -103,6 +105,7 @@ fun BrowseScreen(
                             node = loaded.node,
                             onEdit = { onOpenDetail(loaded.node.id) },
                             onRename = { viewModel.openRename(loaded.node) },
+                            onMove = { onOpenMove(loaded.node.id) },
                             onDelete = { viewModel.openDelete(loaded.node) },
                         )
                         // The sync gear lives on the root house only.
@@ -138,6 +141,7 @@ fun BrowseScreen(
                     onTakePhoto = takeNodePhoto,
                     onOpenChild = onOpenChild,
                     onOpenDetail = onOpenDetail,
+                    onOpenMove = onOpenMove,
                 )
             }
         }
@@ -167,6 +171,7 @@ private fun LoadedContent(
     onTakePhoto: () -> Unit,
     onOpenChild: (String) -> Unit,
     onOpenDetail: (String) -> Unit,
+    onOpenMove: (String) -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -203,6 +208,7 @@ private fun LoadedContent(
                     onOpen = { onOpenChild(child.id) },
                     onEdit = { onOpenDetail(child.id) },
                     onRename = { viewModel.openRename(child) },
+                    onMove = { onOpenMove(child.id) },
                     onDelete = { viewModel.openDelete(child) },
                 )
             }
@@ -215,6 +221,7 @@ private fun NodeOverflowMenu(
     node: BridgeNode,
     onEdit: () -> Unit,
     onRename: () -> Unit,
+    onMove: () -> Unit,
     onDelete: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -226,8 +233,9 @@ private fun NodeOverflowMenu(
         onDismiss = { expanded = false },
         onEdit = onEdit,
         onRename = onRename,
+        onMove = onMove,
         onDelete = onDelete,
-        // The root house has no parent and can't be deleted.
-        canDelete = node.parentId != null,
+        // The root house has no parent: it can be neither moved nor deleted.
+        isRoot = node.parentId == null,
     )
 }
