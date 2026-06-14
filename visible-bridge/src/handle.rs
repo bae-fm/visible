@@ -94,6 +94,16 @@ impl AppHandle {
             .block_on(self.app.inventory.set_image(&id, bytes))?)
     }
 
+    /// Remove a node's image: null its pointer, delete the image row, and clean
+    /// up the file and cloud blob. A node with no image is a no-op; NotFound if
+    /// the node doesn't exist.
+    pub fn clear_node_image(&self, id: String) -> Result<(), BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.inventory.clear_image(&id))?)
+    }
+
     /// A node with its editable attributes and tags, for the edit screen.
     pub fn node_detail(&self, id: String) -> Result<BridgeNodeDetail, BridgeError> {
         Ok(self
