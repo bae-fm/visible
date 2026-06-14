@@ -97,14 +97,10 @@ impl AppHandle {
         Ok(self.app.sync.disconnect()?)
     }
 
-    /// Request an immediate sync cycle (no-op when sync isn't connected).
+    /// Request an immediate sync cycle (no-op when sync isn't connected). Backs
+    /// the settings screen's "Sync now" action.
     pub fn trigger_sync(&self) {
         self.app.sync.trigger_sync();
-    }
-
-    /// Whether the background sync loop is running.
-    pub fn is_sync_ready(&self) -> bool {
-        self.app.sync.is_sync_ready()
     }
 
     /// Whether a provider is configured and whether the loop is running.
