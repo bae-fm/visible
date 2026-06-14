@@ -34,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -69,13 +68,14 @@ fun BrowseScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        // Empty while loading/failed (no node to title yet); the
-                        // loaded node shows its title, or "Untitled" if it has none.
-                        text = (content as? BrowseContent.Loaded)?.node?.displayName ?: "",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    // Empty while loading/failed (no node to title yet); the loaded
+                    // node shows its name, or a dimmed "Untitled" if it has none.
+                    val loaded = content as? BrowseContent.Loaded
+                    if (loaded != null) {
+                        NodeName(name = loaded.node.name, maxLines = 1)
+                    } else {
+                        Text(text = "", maxLines = 1)
+                    }
                 },
                 navigationIcon = {
                     if (canPop) {
@@ -132,7 +132,7 @@ fun BrowseScreen(
             onDismiss = viewModel::dismissDialog,
         )
         is BrowseDialog.ConfirmDelete -> ConfirmDeleteDialog(
-            name = dialog.target.displayName,
+            name = dialog.target.name,
             onConfirm = { viewModel.delete(dialog.target.id) },
             onDismiss = viewModel::dismissDialog,
         )

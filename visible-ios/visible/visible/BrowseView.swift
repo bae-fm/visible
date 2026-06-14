@@ -80,8 +80,12 @@ struct BrowseView: View {
 
     private var title: String {
         // Empty while loading/failed (no node to title yet); the loaded node
-        // shows its title, or "Untitled" if it has none.
-        if case let .loaded(node, _) = model.content { node.displayName } else { "" }
+        // shows its name, or "Untitled" if it has none. The navigation bar renders
+        // the title in the system style, so the untitled placeholder reads as a
+        // dimmed name on the card and the delete sheet, not here.
+        guard case let .loaded(node, _) = model.content else { return "" }
+        if let name = node.name { return name }
+        return "Untitled"
     }
 
     /// Presents the camera for `intent`, or logs and does nothing when no camera
@@ -167,7 +171,7 @@ struct BrowseView: View {
             )
         case let .confirmDelete(target):
             DeleteConfirmSheet(
-                name: target.displayName,
+                name: target.name,
                 onConfirm: { model.delete(id: target.id) },
                 onCancel: { model.dismissDialog() }
             )

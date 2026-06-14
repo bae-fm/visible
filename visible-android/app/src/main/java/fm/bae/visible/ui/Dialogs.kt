@@ -1,6 +1,7 @@
 package fm.bae.visible.ui
 
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -9,6 +10,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 
 /**
  * A single-field name prompt for renaming a node. [onConfirm] receives the
@@ -51,14 +55,29 @@ fun NameDialog(
 
 @Composable
 fun ConfirmDeleteDialog(
-    name: String,
+    name: String?,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Delete") },
-        text = { Text("Delete \"$name\" and everything in it?") },
+        text = {
+            // Name a titled node directly; show a dimmed "Untitled" for one with
+            // no name, so the absence reads as a placeholder rather than a name.
+            val message = buildAnnotatedString {
+                append("Delete \"")
+                if (name != null) {
+                    append(name)
+                } else {
+                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) {
+                        append("Untitled")
+                    }
+                }
+                append("\" and everything in it?")
+            }
+            Text(message)
+        },
         confirmButton = {
             TextButton(onClick = onConfirm) { Text("Delete") }
         },
