@@ -45,8 +45,9 @@ pub struct SyncStatusInfo {
 }
 
 /// Counts of pending cloud-outbox work, for the settings screen's status line.
+/// visible's cloud outbox carries deletes only — images upload inline on the
+/// changeset channel (their `node_images` INSERT), never through the outbox.
 pub struct OutboxSnapshot {
-    pub pending_uploads: u64,
     pub pending_deletes: u64,
 }
 
@@ -287,14 +288,13 @@ impl Sync {
         }
     }
 
-    /// Counts of pending cloud-outbox uploads and deletes.
+    /// The count of pending cloud-outbox deletes. visible's outbox carries only
+    /// deletes — an image uploads inline on the changeset channel as its
+    /// `node_images` INSERT, so the upload queue is always empty here and isn't
+    /// queried.
     pub async fn outbox_snapshot(&self) -> Result<OutboxSnapshot, CoreError> {
-        let pending_uploads = self.db.get_pending_cloud_uploads().await?.len() as u64;
         let pending_deletes = self.db.get_pending_cloud_deletes().await?.len() as u64;
-        Ok(OutboxSnapshot {
-            pending_uploads,
-            pending_deletes,
-        })
+        Ok(OutboxSnapshot { pending_deletes })
     }
 }
 
@@ -358,32 +358,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn outbox_snapshot_counts_pending_uploads_and_deletes() {
+    async fn outbox_snapshot_counts_pending_deletes() {
         let (sync, _temp) = open_sync().await;
 
         let snap = sync.outbox_snapshot().await.unwrap();
-        assert_eq!(snap.pending_uploads, 0);
         assert_eq!(snap.pending_deletes, 0);
 
-        // Enqueue one of each through coven's outbox API (the same API the node
-        // write path uses) and confirm the snapshot reflects the counts.
-        sync.db
-            .enqueue_upload(
-                "img-1",
-                "images/aa/bb/img-1",
-                Some("/tmp/img-1"),
-                coven::blob::BlobScope::Master,
-                "2024-01-01T00:00:00Z",
-            )
-            .await
-            .unwrap();
+        // Enqueue one delete through coven's outbox API and confirm the snapshot
+        // reflects the count. Deletes are the only thing visible's outbox carries.
         sync.db
             .enqueue_delete("images/cc/dd/img-2", "2024-01-01T00:00:00Z")
             .await
             .unwrap();
 
         let snap = sync.outbox_snapshot().await.unwrap();
-        assert_eq!(snap.pending_uploads, 1);
         assert_eq!(snap.pending_deletes, 1);
     }
 

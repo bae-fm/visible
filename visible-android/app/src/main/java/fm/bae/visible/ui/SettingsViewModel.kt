@@ -62,8 +62,8 @@ class SettingsViewModel(
 
     /**
      * The one-line status: the in-flight connect, then the configured/ready
-     * state, with the pending outbox counts appended when there is work queued.
-     * Composed here on the model from the booleans and counts the bridge provides
+     * state, with the pending delete count appended when there is work queued.
+     * Composed here on the model from the booleans and count the bridge provides
      * plus the local in-flight flag, so the composable renders it directly.
      */
     val statusLine: String
@@ -72,18 +72,8 @@ class SettingsViewModel(
             val status = status
             if (status?.configured != true) return "Not connected"
             val base = if (status.ready) "Synced" else "Connected (starting…)"
-            return base + pendingSuffix
-        }
-
-    /** `" · N to upload, M to delete"` when the outbox has pending work, else empty. */
-    private val pendingSuffix: String
-        get() {
-            val outbox = outbox ?: return ""
-            val parts = buildList {
-                if (outbox.pendingUploads > 0u) add("${outbox.pendingUploads} to upload")
-                if (outbox.pendingDeletes > 0u) add("${outbox.pendingDeletes} to delete")
-            }
-            return if (parts.isEmpty()) "" else " · " + parts.joinToString(", ")
+            val pending = outbox?.pendingDeletes ?: 0u
+            return if (pending > 0u) "$base · $pending to delete" else base
         }
 
     /** Load the current sync status and outbox counts. */

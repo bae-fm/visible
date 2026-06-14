@@ -51,8 +51,8 @@ final class SettingsModel {
     }
 
     /// The one-line status: the in-flight connect, then the configured/ready
-    /// state, with the pending outbox counts appended when there is work queued.
-    /// Composed here on the model from the booleans and counts the bridge provides
+    /// state, with the pending delete count appended when there is work queued.
+    /// Composed here on the model from the booleans and count the bridge provides
     /// plus the local in-flight flag, so the view renders it directly.
     var statusLine: String {
         if working {
@@ -62,17 +62,8 @@ final class SettingsModel {
             return "Not connected"
         }
         let base = status.ready ? "Synced" : "Connected (starting…)"
-        return base + pendingSuffix
-    }
-
-    /// `" · N to upload, M to delete"` when the outbox has pending work, else
-    /// empty.
-    private var pendingSuffix: String {
-        guard let outbox else { return "" }
-        var parts: [String] = []
-        if outbox.pendingUploads > 0 { parts.append("\(outbox.pendingUploads) to upload") }
-        if outbox.pendingDeletes > 0 { parts.append("\(outbox.pendingDeletes) to delete") }
-        return parts.isEmpty ? "" : " · " + parts.joined(separator: ", ")
+        let pending = outbox?.pendingDeletes ?? 0
+        return pending > 0 ? "\(base) · \(pending) to delete" : base
     }
 
     /// Load the current sync status and outbox counts.

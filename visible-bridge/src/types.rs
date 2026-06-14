@@ -85,17 +85,17 @@ impl From<SyncStatusInfo> for BridgeSyncStatus {
     }
 }
 
-/// Pending cloud-outbox counts, for the settings status line.
+/// The pending cloud-outbox delete count, for the settings status line.
+/// visible's outbox carries deletes only — images upload inline on the changeset
+/// channel, never through the outbox.
 #[derive(uniffi::Record)]
 pub struct BridgeOutboxSnapshot {
-    pub pending_uploads: u64,
     pub pending_deletes: u64,
 }
 
 impl From<OutboxSnapshot> for BridgeOutboxSnapshot {
     fn from(s: OutboxSnapshot) -> Self {
         Self {
-            pending_uploads: s.pending_uploads,
             pending_deletes: s.pending_deletes,
         }
     }
