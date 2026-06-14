@@ -17,8 +17,8 @@ thiserror = "1.0"
 # version coven pins (a second keyring-core would split the process-global store).
 keyring-core = "0.7"
 # Encode the device identity public key as hex for the sharing identity code —
-# the same standard encoding coven uses on the wire (matched to coven's version
-# so the code visible hands out is byte-for-byte the public_key_hex coven's
+# the same hex encoding coven uses on the wire (matched to coven's version so the
+# code visible hands out is byte-for-byte the public_key_hex coven's
 # invite/membership APIs consume).
 hex = "0.4"
 tracing = { workspace = true }

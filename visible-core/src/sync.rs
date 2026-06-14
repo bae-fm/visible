@@ -390,9 +390,10 @@ impl Sync {
         manager.generate_restore_code().map_err(CoreError::Sync)
     }
 
-    /// The live [`SyncManager`], or a clear error when sync isn't connected. The
-    /// invite/remove/restore paths all seal or rotate the library key against the
-    /// live cloud home, so they can't run on a local-only library.
+    /// The live [`SyncManager`], or `CoreError::Sync("sync not connected")` when
+    /// no provider is connected. The invite/remove/restore paths all seal or
+    /// rotate the library key against the live cloud home, so they can't run on a
+    /// local-only library.
     fn require_manager(&self) -> Result<Arc<SyncManager>, CoreError> {
         self.manager
             .read()

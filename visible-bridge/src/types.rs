@@ -68,7 +68,7 @@ impl From<Member> for BridgeMember {
 /// read-only. The FFI mirror of visible-core's [`MemberRole`] — it converts both
 /// ways: from the core type for the members list, and into it for `invite_member`
 /// where the UI picks the role to grant.
-#[derive(uniffi::Enum)]
+#[derive(Debug, PartialEq, uniffi::Enum)]
 pub enum BridgeMemberRole {
     Owner,
     Member,
@@ -190,15 +190,22 @@ impl From<CoreError> for BridgeError {
 mod tests {
     use super::*;
 
-    /// Each role survives the round trip core → bridge → core unchanged. The
-    /// mapping is the FFI boundary the members list and `invite_member` both
-    /// cross, so a dropped or swapped variant would silently grant the wrong
-    /// access.
+    /// Each variant maps to its same-named counterpart in BOTH directions. The
+    /// mapping is the FFI boundary the members list (core → bridge) and
+    /// `invite_member` (bridge → core) cross separately, so a swapped pair would
+    /// silently grant the wrong access — and a round-trip alone wouldn't catch it
+    /// (a swap in both directions round-trips clean). Assert each direction
+    /// against the expected variant instead.
     #[test]
-    fn member_role_round_trips_through_the_bridge() {
-        for role in [MemberRole::Owner, MemberRole::Member, MemberRole::Follower] {
-            let back: MemberRole = BridgeMemberRole::from(role.clone()).into();
-            assert_eq!(back, role);
+    fn member_role_maps_to_the_same_variant_each_direction() {
+        let pairs = [
+            (MemberRole::Owner, BridgeMemberRole::Owner),
+            (MemberRole::Member, BridgeMemberRole::Member),
+            (MemberRole::Follower, BridgeMemberRole::Follower),
+        ];
+        for (core, bridge) in pairs {
+            assert_eq!(BridgeMemberRole::from(core.clone()), bridge);
+            assert_eq!(MemberRole::from(bridge), core);
         }
     }
 }
