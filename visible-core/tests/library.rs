@@ -5,7 +5,7 @@
 use coven::id_provider::SequentialIdProvider;
 use tempfile::TempDir;
 use visible_core::app::bootstrap;
-use visible_core::library::{create, create_default, discover, open_config};
+use visible_core::library::{create, create_named, discover, open_config};
 
 #[test]
 fn create_then_discover_finds_the_library() {
@@ -29,11 +29,15 @@ fn discover_on_missing_data_dir_is_empty() {
 }
 
 #[test]
-fn create_default_names_the_library_home() {
+fn create_named_uses_the_given_name() {
     let data_dir = TempDir::new().expect("temp data dir");
 
-    let info = create_default(data_dir.path()).expect("create default");
-    assert_eq!(info.name, "Home");
+    let info = create_named(data_dir.path(), "The Loft".to_string()).expect("create named");
+    assert_eq!(info.name, "The Loft");
+
+    let found = discover(data_dir.path()).expect("discover");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].name, "The Loft");
 }
 
 #[test]

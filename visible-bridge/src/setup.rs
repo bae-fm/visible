@@ -7,10 +7,21 @@ use std::path::PathBuf;
 
 use crate::types::{BridgeError, BridgeLibrary};
 
-/// Create the default first library ("Home") under `data_dir` and return it.
+/// Create a new library named `name` under `data_dir` and return it. The
+/// onboarding "create a home" flow names the home; the name becomes both the
+/// library name and the root house node's title.
 #[uniffi::export]
-pub fn create_library(data_dir: String) -> Result<BridgeLibrary, BridgeError> {
-    Ok(visible_core::library::create_default(&PathBuf::from(data_dir))?.into())
+pub fn create_library(data_dir: String, name: String) -> Result<BridgeLibrary, BridgeError> {
+    Ok(visible_core::library::create_named(&PathBuf::from(data_dir), name)?.into())
+}
+
+/// This device's identity code (its Ed25519 public key, hex), readable before any
+/// library exists. The onboarding "join a home" flow shows it so a joiner can send
+/// it to a home's owner out of band before they have a library to open. Once a
+/// library is open, `AppHandle::user_identity_code` returns the same code.
+#[uniffi::export]
+pub fn user_identity_code() -> Result<String, BridgeError> {
+    Ok(visible_core::user_identity_code()?)
 }
 
 /// Every library found under `data_dir`.

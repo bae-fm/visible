@@ -133,6 +133,20 @@ pub fn remove_library(data_dir: &Path, library_id: &str) -> Result<(), CoreError
     Ok(())
 }
 
+/// This device's identity code: its global Ed25519 public key as hex, read (and
+/// minted if absent) from the keyring. The signing keypair is global — its
+/// keyring account is fixed, not scoped to any library — so the `library_id`
+/// passed to [`KeyService`] is immaterial here, and no `data_dir` is needed: the
+/// code is available before any library exists. The onboarding "join a home" flow
+/// shows it so a joiner can send it to a home's owner before they have a library
+/// to open. ([`Sync::user_identity_code`](crate::Sync::user_identity_code) reads
+/// the same keypair once a library is open.)
+pub fn user_identity_code() -> Result<String, CoreError> {
+    let key_service = KeyService::new(String::new());
+    let keypair = key_service.get_or_create_user_keypair()?;
+    Ok(hex::encode(keypair.public_key))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +169,22 @@ mod tests {
 
         remove_library(temp.path(), &info.id).unwrap();
         assert!(!dir.exists(), "library dir is gone after remove_library");
+    }
+
+    /// The pre-library identity code is the global keypair as hex, minted on
+    /// demand and stable across calls — available with no library on disk, which
+    /// is what the onboarding "join a home" screen needs.
+    #[test]
+    fn user_identity_code_is_a_stable_hex_pubkey_with_no_library() {
+        crate::config::install_test_keyring();
+
+        let code = user_identity_code().unwrap();
+        assert_eq!(code.len(), 64, "32-byte pubkey as hex");
+        assert!(
+            code.bytes().all(|b| b.is_ascii_hexdigit()),
+            "identity code is hex: {code}"
+        );
+        // Read back, not re-minted.
+        assert_eq!(user_identity_code().unwrap(), code);
     }
 }

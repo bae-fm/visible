@@ -144,13 +144,11 @@ pub fn create(
     })
 }
 
-/// Create the default first library ("Home") under `data_dir`.
-pub fn create_default(data_dir: &Path) -> Result<LibraryInfo, CoreError> {
-    create(
-        data_dir,
-        "Home".to_string(),
-        &coven::id_provider::UuidProvider,
-    )
+/// Create a library named `name` under `data_dir` with the real UUID id source.
+/// The composition-root wrapper the bridge's `create_library` calls; [`create`]
+/// itself stays generic over the id source so tests inject a deterministic one.
+pub fn create_named(data_dir: &Path, name: String) -> Result<LibraryInfo, CoreError> {
+    create(data_dir, name, &coven::id_provider::UuidProvider)
 }
 
 /// Load the runtime [`Config`] for `library_id` under `data_dir` from its
