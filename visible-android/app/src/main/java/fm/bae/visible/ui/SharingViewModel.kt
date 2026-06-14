@@ -117,11 +117,7 @@ class SharingViewModel(
     fun roleLabel(member: BridgeMember): String = roleName(member.role)
 
     /** The label for a grantable role in the invite picker. */
-    fun roleName(role: BridgeMemberRole): String = when (role) {
-        BridgeMemberRole.OWNER -> "Owner"
-        BridgeMemberRole.MEMBER -> "Member"
-        BridgeMemberRole.FOLLOWER -> "Follower"
-    }
+    fun roleName(role: BridgeMemberRole): String = SharingLogic.roleName(role)
 
     /**
      * Load the identity code, the connected flag, and the member list together so

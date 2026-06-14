@@ -38,6 +38,16 @@ android {
             java.srcDir("../../visible-bridge/kotlin-bindings")
         }
     }
+
+    testOptions {
+        unitTests {
+            // The extracted form-conversion helpers (NodeDetailLogic) log the
+            // unparseable→null path through android.util.Log, which is a stub on
+            // the JVM. Returning default values lets those real functions run
+            // (Log.d returns 0) instead of throwing "not mocked".
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -61,9 +71,9 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Local JUnit unit test for shouldRemovePrevious, the single-active-home
-    // remove-vs-keep decision. Pure logic, no Android framework, so it runs on the
-    // JVM under testDebugUnitTest.
+    // Local JUnit unit tests for the pure app logic (shouldRemovePrevious and the
+    // extracted Settings/Sharing/NodeDetail derivations). No Android framework, so
+    // they run on the JVM under testDebugUnitTest.
     testImplementation("junit:junit:4.13.2")
 
     // Instrumented navigation test: TestNavHostController drives the real

@@ -78,7 +78,13 @@ final class SettingsModel {
     /// Whether the connect button has the minimum required fields. Bucket,
     /// region, and both keys are required; endpoint and prefix are optional.
     var canConnect: Bool {
-        !working && !bucket.isEmpty && !region.isEmpty && !accessKey.isEmpty && !secretKey.isEmpty
+        SettingsLogic.canConnect(
+            bucket: bucket,
+            region: region,
+            accessKey: accessKey,
+            secretKey: secretKey,
+            working: working
+        )
     }
 
     /// Whether a provider is configured (a Disconnect / Sync-now action makes
@@ -92,15 +98,12 @@ final class SettingsModel {
     /// Composed here on the model from the booleans and count the bridge provides
     /// plus the local in-flight flag, so the view renders it directly.
     var statusLine: String {
-        if working {
-            return "Connecting…"
-        }
-        guard let status, status.configured else {
-            return "Not connected"
-        }
-        let base = status.ready ? "Synced" : "Connected (starting…)"
-        let pending = outbox?.pendingDeletes ?? 0
-        return pending > 0 ? "\(base) · \(pending) to delete" : base
+        SettingsLogic.statusLine(
+            working: working,
+            configured: status?.configured ?? false,
+            ready: status?.ready ?? false,
+            pendingDeletes: outbox?.pendingDeletes ?? 0
+        )
     }
 
     /// Load the home's current name from the root node, so "This Home" shows it
@@ -203,13 +206,11 @@ final class SettingsModel {
     func connect() {
         // Map a blank or whitespace-only optional box to nil at the form (its
         // absence); trim so a real value is sent without surrounding whitespace.
-        let ep = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prefix = keyPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
         let config = BridgeS3Config(
             bucket: bucket,
             region: region,
-            endpoint: ep.isEmpty ? nil : ep,
-            keyPrefix: prefix.isEmpty ? nil : prefix,
+            endpoint: SettingsLogic.optionalField(endpoint),
+            keyPrefix: SettingsLogic.optionalField(keyPrefix),
             accessKey: accessKey,
             secretKey: secretKey
         )

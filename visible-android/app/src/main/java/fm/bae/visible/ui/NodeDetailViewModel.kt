@@ -12,11 +12,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.visible_bridge.AppHandle
 import uniffi.visible_bridge.BridgeNodeDetail
-import java.math.BigDecimal
-import java.math.RoundingMode
-import java.time.LocalDate
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 
 private const val TAG = "visible.NodeDetailViewModel"
 
@@ -113,8 +108,8 @@ class NodeDetailViewModel(
      */
     private fun seed(detail: BridgeNodeDetail) {
         quantity = detail.quantity?.toString() ?: ""
-        valueDollars = detail.valueCents?.let(::dollarsFromCents) ?: ""
-        acquiredDateMillis = detail.acquiredAt?.let(::millisFromIso)
+        valueDollars = detail.valueCents?.let(NodeDetailLogic::dollarsFromCents) ?: ""
+        acquiredDateMillis = detail.acquiredAt?.let(NodeDetailLogic::millisFromIso)
         notes = detail.notes ?: ""
         serial = detail.serial ?: ""
         barcode = detail.barcode ?: ""
@@ -138,12 +133,12 @@ class NodeDetailViewModel(
      * normalizes). Reloads after the write so the form reflects the stored state.
      */
     fun save() {
-        val quantity = quantityFromText(quantity)
-        val valueCents = centsFromDollars(valueDollars)
-        val acquiredAt = acquiredDateMillis?.let(::isoFromMillis)
-        val notes = notes.trim().ifEmpty { null }
-        val serial = serial.trim().ifEmpty { null }
-        val barcode = barcode.trim().ifEmpty { null }
+        val quantity = NodeDetailLogic.quantityFromText(quantity)
+        val valueCents = NodeDetailLogic.centsFromDollars(valueDollars)
+        val acquiredAt = acquiredDateMillis?.let(NodeDetailLogic::isoFromMillis)
+        val notes = NodeDetailLogic.blankToNull(notes)
+        val serial = NodeDetailLogic.blankToNull(serial)
+        val barcode = NodeDetailLogic.blankToNull(barcode)
 
         errorMessage = null
         working = true
@@ -201,61 +196,5 @@ class NodeDetailViewModel(
             }
             if (loaded != null) tags = loaded
         }
-    }
-
-    private companion object {
-        val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-
-        /**
-         * A quantity string → [Long], or null. Blank is null (a cleared field,
-         * the form-seeding exemption). A non-blank string that isn't a whole
-         * number is also null, but that's a dropped value on the save path, so
-         * it's logged.
-         */
-        fun quantityFromText(text: String): Long? {
-            val trimmed = text.trim()
-            if (trimmed.isEmpty()) return null
-            val value = trimmed.toLongOrNull()
-            if (value == null) {
-                Log.d(TAG, "quantity '$trimmed' is not a whole number; saving no quantity")
-            }
-            return value
-        }
-
-        /** Cents → a dollars string with two decimal places (form-seeding). */
-        fun dollarsFromCents(cents: Long): String =
-            BigDecimal(cents).movePointLeft(2).toPlainString()
-
-        /**
-         * A dollars string → whole cents, rounded to the nearest cent; blank or
-         * unparseable is null. Uses [BigDecimal] so the cent rounding doesn't
-         * inherit binary-float drift.
-         */
-        fun centsFromDollars(text: String): Long? {
-            val trimmed = text.trim()
-            if (trimmed.isEmpty()) return null
-            return try {
-                BigDecimal(trimmed).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact()
-            } catch (e: ArithmeticException) {
-                Log.d(TAG, "value '$trimmed' is not a parseable amount; saving no value", e)
-                null
-            } catch (e: NumberFormatException) {
-                Log.d(TAG, "value '$trimmed' is not a parseable amount; saving no value", e)
-                null
-            }
-        }
-
-        /** An ISO `YYYY-MM-DD` date → UTC start-of-day epoch millis (form-seeding). */
-        fun millisFromIso(iso: String): Long? =
-            try {
-                LocalDate.parse(iso, ISO_DATE).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
-            } catch (e: java.time.format.DateTimeParseException) {
-                Log.d(TAG, "acquired date '$iso' is not an ISO date; showing no date", e)
-                null
-            }
-
-        /** UTC epoch millis → an ISO `YYYY-MM-DD` date string. */
-        fun isoFromMillis(millis: Long): String =
-            java.time.Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().format(ISO_DATE)
     }
 }

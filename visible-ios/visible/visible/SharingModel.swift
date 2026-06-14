@@ -80,11 +80,7 @@ final class SharingModel {
 
     /// The label for a grantable role in the invite picker.
     func roleName(_ role: BridgeMemberRole) -> String {
-        switch role {
-        case .owner: "Owner"
-        case .member: "Member"
-        case .follower: "Follower"
-        }
+        SharingLogic.roleName(role)
     }
 
     /// Load the identity code, the connected flag, and the member list. The

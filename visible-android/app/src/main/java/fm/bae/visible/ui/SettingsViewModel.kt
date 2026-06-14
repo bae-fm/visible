@@ -89,8 +89,7 @@ class SettingsViewModel(
 
     /** Whether the connect button has the minimum required fields. */
     val canConnect: Boolean
-        get() = !working && bucket.isNotEmpty() && region.isNotEmpty() &&
-            accessKey.isNotEmpty() && secretKey.isNotEmpty()
+        get() = SettingsLogic.canConnect(bucket, region, accessKey, secretKey, working)
 
     /** Whether a provider is configured (a Disconnect / Sync-now action makes sense). */
     val isConnected: Boolean
@@ -103,14 +102,12 @@ class SettingsViewModel(
      * plus the local in-flight flag, so the composable renders it directly.
      */
     val statusLine: String
-        get() {
-            if (working) return "Connecting…"
-            val status = status
-            if (status?.configured != true) return "Not connected"
-            val base = if (status.ready) "Synced" else "Connected (starting…)"
-            val pending = outbox?.pendingDeletes ?: 0u
-            return if (pending > 0u) "$base · $pending to delete" else base
-        }
+        get() = SettingsLogic.statusLine(
+            working = working,
+            configured = status?.configured == true,
+            ready = status?.ready == true,
+            pendingDeletes = outbox?.pendingDeletes ?: 0uL,
+        )
 
     /**
      * Load the home's current name from the root node, so "This Home" shows it and
@@ -221,8 +218,8 @@ class SettingsViewModel(
         val config = BridgeS3Config(
             bucket = bucket,
             region = region,
-            endpoint = endpoint.trim().ifEmpty { null },
-            keyPrefix = keyPrefix.trim().ifEmpty { null },
+            endpoint = SettingsLogic.optionalField(endpoint),
+            keyPrefix = SettingsLogic.optionalField(keyPrefix),
             accessKey = accessKey,
             secretKey = secretKey,
         )

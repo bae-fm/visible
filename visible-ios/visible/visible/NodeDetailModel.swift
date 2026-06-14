@@ -53,17 +53,6 @@ final class NodeDetailModel {
         self.nodeId = nodeId
     }
 
-    /// The ISO `YYYY-MM-DD` formatter the acquired date seeds from and saves back
-    /// to. Fixed locale and UTC so a bare calendar date round-trips without a
-    /// time-zone shift.
-    private static let isoDate: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
-
     /// Load the node's detail and seed the form from it.
     func reload() {
         let handle = handle
@@ -100,8 +89,8 @@ final class NodeDetailModel {
     /// field seeds blank.
     private func seed(from detail: BridgeNodeDetail) {
         quantity = detail.quantity.map(String.init) ?? ""
-        valueDollars = detail.valueCents.map(Self.dollars(fromCents:)) ?? ""
-        acquiredDate = detail.acquiredAt.flatMap { Self.isoDate.date(from: $0) }
+        valueDollars = detail.valueCents.map(NodeDetailLogic.dollars(fromCents:)) ?? ""
+        acquiredDate = detail.acquiredAt.flatMap(NodeDetailLogic.dateFromIso)
         notes = detail.notes ?? ""
         serial = detail.serial ?? ""
         barcode = detail.barcode ?? ""
@@ -184,54 +173,13 @@ final class NodeDetailModel {
     /// value from their editable strings, the date back to ISO, blank text to nil.
     private func formAttributes() -> NodeAttributes {
         NodeAttributes(
-            quantity: Self.int64(from: quantity),
-            notes: Self.blankToNil(notes),
-            valueCents: Self.cents(fromDollars: valueDollars),
-            acquiredAt: acquiredDate.map { Self.isoDate.string(from: $0) },
-            serial: Self.blankToNil(serial),
-            barcode: Self.blankToNil(barcode)
+            quantity: NodeDetailLogic.int64(from: quantity),
+            notes: NodeDetailLogic.blankToNil(notes),
+            valueCents: NodeDetailLogic.cents(fromDollars: valueDollars),
+            acquiredAt: acquiredDate.map(NodeDetailLogic.isoFromDate),
+            serial: NodeDetailLogic.blankToNil(serial),
+            barcode: NodeDetailLogic.blankToNil(barcode)
         )
-    }
-
-    /// A trimmed text field, or nil when blank — the absence a cleared field means.
-    private static func blankToNil(_ text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    /// Parse a whole-number string into `Int64?`. Blank is nil (a cleared field,
-    /// the form-seeding exemption). A non-blank string that doesn't parse is also
-    /// nil, but that's a dropped value on the save path, so it's logged.
-    private static func int64(from text: String) -> Int64? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return nil }
-        guard let value = Int64(trimmed) else {
-            logger.warning("quantity \(trimmed, privacy: .public) is not a whole number; saving no quantity")
-            return nil
-        }
-        return value
-    }
-
-    /// Cents → a dollars string with two decimal places (form-seeding).
-    private static func dollars(fromCents cents: Int64) -> String {
-        let value = Decimal(cents) / 100
-        return NSDecimalNumber(decimal: value).stringValue
-    }
-
-    /// A dollars string → whole cents, rounded to the nearest cent; blank or
-    /// unparseable is nil. Uses `Decimal` so the cent rounding doesn't inherit
-    /// binary-float drift.
-    private static func cents(fromDollars text: String) -> Int64? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return nil }
-        guard let dollars = Decimal(string: trimmed, locale: Locale(identifier: "en_US_POSIX")) else {
-            logger.warning("value \(trimmed, privacy: .public) is not a parseable amount; saving no value")
-            return nil
-        }
-        var cents = dollars * 100
-        var rounded = Decimal()
-        NSDecimalRound(&rounded, &cents, 0, .plain)
-        return NSDecimalNumber(decimal: rounded).int64Value
     }
 }
 
