@@ -138,7 +138,7 @@ class NodeDetailViewModel(
      * normalizes). Reloads after the write so the form reflects the stored state.
      */
     fun save() {
-        val quantity = quantity.trim().toLongOrNull()
+        val quantity = quantityFromText(quantity)
         val valueCents = centsFromDollars(valueDollars)
         val acquiredAt = acquiredDateMillis?.let(::isoFromMillis)
         val notes = notes.trim().ifEmpty { null }
@@ -205,6 +205,22 @@ class NodeDetailViewModel(
 
     private companion object {
         val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+        /**
+         * A quantity string → [Long], or null. Blank is null (a cleared field,
+         * the form-seeding exemption). A non-blank string that isn't a whole
+         * number is also null, but that's a dropped value on the save path, so
+         * it's logged.
+         */
+        fun quantityFromText(text: String): Long? {
+            val trimmed = text.trim()
+            if (trimmed.isEmpty()) return null
+            val value = trimmed.toLongOrNull()
+            if (value == null) {
+                Log.d(TAG, "quantity '$trimmed' is not a whole number; saving no quantity")
+            }
+            return value
+        }
 
         /** Cents → a dollars string with two decimal places (form-seeding). */
         fun dollarsFromCents(cents: Long): String =

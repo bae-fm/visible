@@ -199,9 +199,17 @@ final class NodeDetailModel {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// Parse a whole-number string into `Int64?`; blank or non-numeric is nil.
+    /// Parse a whole-number string into `Int64?`. Blank is nil (a cleared field,
+    /// the form-seeding exemption). A non-blank string that doesn't parse is also
+    /// nil, but that's a dropped value on the save path, so it's logged.
     private static func int64(from text: String) -> Int64? {
-        Int64(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        guard let value = Int64(trimmed) else {
+            logger.warning("quantity \(trimmed, privacy: .public) is not a whole number; saving no quantity")
+            return nil
+        }
+        return value
     }
 
     /// Cents → a dollars string with two decimal places (form-seeding).
@@ -217,6 +225,7 @@ final class NodeDetailModel {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
         guard let dollars = Decimal(string: trimmed, locale: Locale(identifier: "en_US_POSIX")) else {
+            logger.warning("value \(trimmed, privacy: .public) is not a parseable amount; saving no value")
             return nil
         }
         var cents = dollars * 100
