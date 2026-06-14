@@ -2,7 +2,9 @@
 //! see, and the conversions from visible-core's domain types. Type translation
 //! only — no logic.
 
-use visible_core::{CoreError, LibraryInfo, Node, OutboxSnapshot, S3ConfigData, SyncStatusInfo};
+use visible_core::{
+    CoreError, LibraryInfo, Member, MemberRole, Node, OutboxSnapshot, S3ConfigData, SyncStatusInfo,
+};
 
 /// A node as the UI consumes it. No `position` — the bridge returns children
 /// already ordered, so the UI iterates in order rather than re-sorting.
@@ -39,6 +41,56 @@ impl From<LibraryInfo> for BridgeLibrary {
         Self {
             id: info.id,
             name: info.name,
+        }
+    }
+}
+
+/// A member of a shared library, for the members list. `is_self` marks this
+/// device's own entry so the UI can label it.
+#[derive(uniffi::Record)]
+pub struct BridgeMember {
+    pub pubkey: String,
+    pub role: BridgeMemberRole,
+    pub is_self: bool,
+}
+
+impl From<Member> for BridgeMember {
+    fn from(m: Member) -> Self {
+        Self {
+            pubkey: m.pubkey,
+            role: m.role.into(),
+            is_self: m.is_self,
+        }
+    }
+}
+
+/// A member's role: `Owner` and `Member` may author changes; `Follower` is
+/// read-only. The FFI mirror of visible-core's [`MemberRole`] — it converts both
+/// ways: from the core type for the members list, and into it for `invite_member`
+/// where the UI picks the role to grant.
+#[derive(uniffi::Enum)]
+pub enum BridgeMemberRole {
+    Owner,
+    Member,
+    Follower,
+}
+
+impl From<MemberRole> for BridgeMemberRole {
+    fn from(role: MemberRole) -> Self {
+        match role {
+            MemberRole::Owner => BridgeMemberRole::Owner,
+            MemberRole::Member => BridgeMemberRole::Member,
+            MemberRole::Follower => BridgeMemberRole::Follower,
+        }
+    }
+}
+
+impl From<BridgeMemberRole> for MemberRole {
+    fn from(role: BridgeMemberRole) -> Self {
+        match role {
+            BridgeMemberRole::Owner => MemberRole::Owner,
+            BridgeMemberRole::Member => MemberRole::Member,
+            BridgeMemberRole::Follower => MemberRole::Follower,
         }
     }
 }
@@ -130,6 +182,23 @@ impl From<CoreError> for BridgeError {
             CoreError::Sync(msg) => BridgeError::Sync { msg },
             CoreError::Io(msg) => BridgeError::Internal { msg },
             CoreError::Internal(msg) => BridgeError::Internal { msg },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each role survives the round trip core → bridge → core unchanged. The
+    /// mapping is the FFI boundary the members list and `invite_member` both
+    /// cross, so a dropped or swapped variant would silently grant the wrong
+    /// access.
+    #[test]
+    fn member_role_round_trips_through_the_bridge() {
+        for role in [MemberRole::Owner, MemberRole::Member, MemberRole::Follower] {
+            let back: MemberRole = BridgeMemberRole::from(role.clone()).into();
+            assert_eq!(back, role);
         }
     }
 }

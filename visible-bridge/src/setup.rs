@@ -22,6 +22,39 @@ pub fn discover_libraries(data_dir: String) -> Result<Vec<BridgeLibrary>, Bridge
         .collect())
 }
 
+/// Join a shared library from an invite code: download its snapshot and write the
+/// library under `data_dir`, returning its identity. The app then opens it with
+/// `init_app(data_dir, joined_id)` and drops the prior library with
+/// `remove_library(data_dir, old_id)` (single active home).
+#[uniffi::export]
+pub fn join_library_from_invite(
+    data_dir: String,
+    invite_code: String,
+) -> Result<BridgeLibrary, BridgeError> {
+    Ok(visible_core::join_shared_library(&PathBuf::from(data_dir), &invite_code)?.into())
+}
+
+/// Restore a library from an owner's restore code: download its snapshot and write
+/// the library under `data_dir`, returning its identity for the app to open.
+#[uniffi::export]
+pub fn restore_library_from_code(
+    data_dir: String,
+    restore_code: String,
+) -> Result<BridgeLibrary, BridgeError> {
+    Ok(visible_core::restore_shared_library(&PathBuf::from(data_dir), &restore_code)?.into())
+}
+
+/// Remove a library from this device: delete its on-disk directory and clear its
+/// keyring entries. The app calls this to drop the prior library after a join
+/// (single active home).
+#[uniffi::export]
+pub fn remove_library(data_dir: String, library_id: String) -> Result<(), BridgeError> {
+    Ok(visible_core::remove_library(
+        &PathBuf::from(data_dir),
+        &library_id,
+    )?)
+}
+
 /// Install the platform keyring store and name coven's keyring service. Apps call
 /// this once at startup, before opening a session — cloud sync reads the identity
 /// keypair and the per-library encryption key from the keyring.

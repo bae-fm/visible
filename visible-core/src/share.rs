@@ -9,10 +9,11 @@
 //! library and drops the prior one's on-disk directory.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use coven::blob::BlobPlan;
-use coven::clock::ClockRef;
-use coven::id_provider::IdRef;
+use coven::clock::{ClockRef, SystemClock};
+use coven::id_provider::{IdRef, UuidProvider};
 use coven::keys::KeyService;
 use coven::library_dir::LibraryDir;
 use coven::sync::join::join_from_invite_code;
@@ -45,16 +46,17 @@ fn make_blob_plan(dir: &LibraryDir) -> Box<dyn BlobPlan> {
 /// never tripped; CloudKit isn't a visible provider, so no CloudKit driver is
 /// passed. Runs on the bootstrap stack (the snapshot download nests deep async
 /// state machines that overflow the platform worker thread).
-pub fn join_shared_library(
-    data_dir: &Path,
-    invite_code: &str,
-    ids: IdRef,
-    clock: ClockRef,
-) -> Result<LibraryInfo, CoreError> {
+pub fn join_shared_library(data_dir: &Path, invite_code: &str) -> Result<LibraryInfo, CoreError> {
     run_on_bootstrap_stack("visible-join", {
         let data_dir = data_dir.to_path_buf();
         let invite_code = invite_code.to_string();
         move |runtime| {
+            // Composition root for the injected id source and wall clock, as in
+            // `app::bootstrap` — the joined library's first device id and the
+            // clock its snapshot pull stamps against.
+            let ids: IdRef = Arc::new(UuidProvider);
+            let clock: ClockRef = Arc::new(SystemClock);
+
             // S3 needs no interactive OAuth, so this receiver is never set true;
             // coven's S3 join path doesn't read it. The sender is dropped at the
             // end of the closure, after the join has run.
@@ -87,13 +89,13 @@ pub fn join_shared_library(
 pub fn restore_shared_library(
     data_dir: &Path,
     restore_code: &str,
-    ids: IdRef,
-    clock: ClockRef,
 ) -> Result<LibraryInfo, CoreError> {
     run_on_bootstrap_stack("visible-restore", {
         let data_dir = data_dir.to_path_buf();
         let restore_code = restore_code.to_string();
         move |runtime| {
+            let ids: IdRef = Arc::new(UuidProvider);
+            let clock: ClockRef = Arc::new(SystemClock);
             let config = runtime
                 .block_on(restore_from_code(
                     &restore_code,

@@ -6,7 +6,8 @@
 use visible_core::RunningApp;
 
 use crate::types::{
-    BridgeError, BridgeNode, BridgeOutboxSnapshot, BridgeS3Config, BridgeSyncStatus,
+    BridgeError, BridgeMember, BridgeMemberRole, BridgeNode, BridgeOutboxSnapshot, BridgeS3Config,
+    BridgeSyncStatus,
 };
 
 #[derive(uniffi::Object)]
@@ -115,5 +116,49 @@ impl AppHandle {
             .runtime
             .block_on(self.app.sync.outbox_snapshot())?
             .into())
+    }
+
+    /// This device's identity code (its Ed25519 public key, hex), which the user
+    /// sends to a library owner out of band so the owner can invite them.
+    pub fn user_identity_code(&self) -> Result<String, BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.sync.user_identity_code())?)
+    }
+
+    /// Invite a member by their identity code, granting `role`, and return the
+    /// invite code to send back. Requires a connected sync loop.
+    pub fn invite_member(
+        &self,
+        identity_code: String,
+        role: BridgeMemberRole,
+    ) -> Result<String, BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.sync.invite_member(&identity_code, role.into()))?)
+    }
+
+    /// The members of this shared library (empty for a local-only library).
+    pub fn members(&self) -> Result<Vec<BridgeMember>, BridgeError> {
+        let members = self.app.runtime.block_on(self.app.sync.members())?;
+        Ok(members.into_iter().map(BridgeMember::from).collect())
+    }
+
+    /// Remove a member, rotating the library key to lock them out. Requires a
+    /// connected sync loop.
+    pub fn remove_member(&self, pubkey: String) -> Result<(), BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.sync.remove_member(&pubkey))?)
+    }
+
+    /// This owner device's recovery code, which carries the library key so the
+    /// owner can restore the library on another device. Requires a connected sync
+    /// loop.
+    pub fn restore_code(&self) -> Result<String, BridgeError> {
+        Ok(self.app.runtime.block_on(self.app.sync.restore_code())?)
     }
 }
