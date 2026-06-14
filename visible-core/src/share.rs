@@ -18,19 +18,12 @@ use coven::keys::KeyService;
 use coven::library_dir::LibraryDir;
 use coven::sync::join::join_from_invite_code;
 use coven::sync::restore::restore_from_code;
-use coven::sync::session::SyncedTable;
 use tracing::{debug, warn};
 
+use crate::app::{on_bootstrap_stack, synced_tables};
 use crate::blob_plan::NodeBlobPlan;
 use crate::error::CoreError;
-use crate::library::LibraryInfo;
-
-/// The synced tables every visible library carries: the node tree and the image
-/// blob rows. The single source for the join/restore set, matching what
-/// [`crate::app::open_database`] opens.
-fn synced_tables() -> [SyncedTable; 2] {
-    [SyncedTable::new("nodes"), SyncedTable::new("node_images")]
-}
+use crate::library::{library_dir, LibraryInfo};
 
 /// Build the blob-plan factory the join/restore protocol calls once it has
 /// created the library directory: visible's [`NodeBlobPlan`] bound to that dir.
@@ -44,38 +37,36 @@ fn make_blob_plan(dir: &LibraryDir) -> Box<dyn BlobPlan> {
 ///
 /// S3 needs no OAuth, so the OAuth cancel channel is created already false and
 /// never tripped; CloudKit isn't a visible provider, so no CloudKit driver is
-/// passed. Runs on the bootstrap stack (the snapshot download nests deep async
-/// state machines that overflow the platform worker thread).
+/// passed. Runs on the bootstrap stack (see [`on_bootstrap_stack`]); the runtime
+/// the snapshot download blocks on is dropped when the join returns.
 pub fn join_shared_library(data_dir: &Path, invite_code: &str) -> Result<LibraryInfo, CoreError> {
-    run_on_bootstrap_stack("visible-join", {
-        let data_dir = data_dir.to_path_buf();
-        let invite_code = invite_code.to_string();
-        move |runtime| {
-            // Composition root for the injected id source and wall clock, as in
-            // `app::bootstrap` — the joined library's first device id and the
-            // clock its snapshot pull stamps against.
-            let ids: IdRef = Arc::new(UuidProvider);
-            let clock: ClockRef = Arc::new(SystemClock);
+    let data_dir = data_dir.to_path_buf();
+    let invite_code = invite_code.to_string();
+    on_bootstrap_stack("visible-join", move |runtime| {
+        // Composition root for the injected id source and wall clock, as in
+        // `app::bootstrap` — the joined library's first device id and the clock
+        // its snapshot pull stamps against.
+        let ids: IdRef = Arc::new(UuidProvider);
+        let clock: ClockRef = Arc::new(SystemClock);
 
-            // S3 needs no interactive OAuth, so this receiver is never set true;
-            // coven's S3 join path doesn't read it. The sender is dropped at the
-            // end of the closure, after the join has run.
-            let (_oauth_cancel_tx, oauth_cancel_rx) = tokio::sync::watch::channel(false);
-            let config = runtime
-                .block_on(join_from_invite_code(
-                    &invite_code,
-                    &data_dir,
-                    &synced_tables(),
-                    None,
-                    oauth_cancel_rx,
-                    clock,
-                    ids,
-                    make_blob_plan,
-                    |status| debug!(status, "joining shared library"),
-                ))
-                .map_err(|e| CoreError::Sync(e.to_string()))?;
-            Ok(LibraryInfo::from(&config))
-        }
+        // S3 needs no interactive OAuth, so this receiver is never set true;
+        // coven's S3 join path doesn't read it. The sender is dropped at the end
+        // of the closure, after the join has run.
+        let (_oauth_cancel_tx, oauth_cancel_rx) = tokio::sync::watch::channel(false);
+        let config = runtime
+            .block_on(join_from_invite_code(
+                &invite_code,
+                &data_dir,
+                &synced_tables(),
+                None,
+                oauth_cancel_rx,
+                clock,
+                ids,
+                make_blob_plan,
+                |status| debug!(status, "joining shared library"),
+            ))
+            .map_err(|e| CoreError::Sync(e.to_string()))?;
+        Ok(LibraryInfo::from(&config))
     })
 }
 
@@ -90,27 +81,25 @@ pub fn restore_shared_library(
     data_dir: &Path,
     restore_code: &str,
 ) -> Result<LibraryInfo, CoreError> {
-    run_on_bootstrap_stack("visible-restore", {
-        let data_dir = data_dir.to_path_buf();
-        let restore_code = restore_code.to_string();
-        move |runtime| {
-            let ids: IdRef = Arc::new(UuidProvider);
-            let clock: ClockRef = Arc::new(SystemClock);
-            let config = runtime
-                .block_on(restore_from_code(
-                    &restore_code,
-                    &synced_tables(),
-                    None,
-                    None,
-                    &data_dir,
-                    clock,
-                    ids,
-                    make_blob_plan,
-                    |status| debug!(status, "restoring library"),
-                ))
-                .map_err(|e| CoreError::Sync(e.to_string()))?;
-            Ok(LibraryInfo::from(&config))
-        }
+    let data_dir = data_dir.to_path_buf();
+    let restore_code = restore_code.to_string();
+    on_bootstrap_stack("visible-restore", move |runtime| {
+        let ids: IdRef = Arc::new(UuidProvider);
+        let clock: ClockRef = Arc::new(SystemClock);
+        let config = runtime
+            .block_on(restore_from_code(
+                &restore_code,
+                &synced_tables(),
+                None,
+                None,
+                &data_dir,
+                clock,
+                ids,
+                make_blob_plan,
+                |status| debug!(status, "restoring library"),
+            ))
+            .map_err(|e| CoreError::Sync(e.to_string()))?;
+        Ok(LibraryInfo::from(&config))
     })
 }
 
@@ -124,7 +113,7 @@ pub fn restore_shared_library(
 /// the library back). The global identity keypair is shared across all libraries
 /// and is never deleted here.
 pub fn remove_library(data_dir: &Path, library_id: &str) -> Result<(), CoreError> {
-    let dir = LibraryDir::new(data_dir.join("libraries").join(library_id));
+    let dir = library_dir(data_dir, library_id);
     std::fs::remove_dir_all(&*dir)
         .map_err(|e| CoreError::Io(format!("removing library directory {}: {e}", dir.display())))?;
 
@@ -144,30 +133,6 @@ pub fn remove_library(data_dir: &Path, library_id: &str) -> Result<(), CoreError
     Ok(())
 }
 
-/// Run `work` on a thread with a 32 MB stack holding a multi-thread tokio runtime
-/// — the same stack [`crate::app::bootstrap`] uses, for the same reason: the
-/// snapshot download nests deep async state machines that aren't collapsed in
-/// debug builds and overflow the platform worker thread the bridge calls from.
-fn run_on_bootstrap_stack<T: Send + 'static>(
-    name: &str,
-    work: impl FnOnce(&tokio::runtime::Runtime) -> Result<T, CoreError> + Send + 'static,
-) -> Result<T, CoreError> {
-    std::thread::Builder::new()
-        .name(name.to_string())
-        .stack_size(32 * 1024 * 1024)
-        .spawn(move || {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .thread_stack_size(16 * 1024 * 1024)
-                .enable_all()
-                .build()
-                .map_err(|e| CoreError::Internal(format!("building tokio runtime: {e}")))?;
-            work(&runtime)
-        })
-        .map_err(|e| CoreError::Internal(format!("spawning {name} thread: {e}")))?
-        .join()
-        .map_err(|_| CoreError::Internal(format!("{name} thread panicked")))?
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,7 +150,7 @@ mod tests {
         let info =
             crate::library::create(temp.path(), "Shared".to_string(), &UuidProvider).unwrap();
 
-        let dir = LibraryDir::new(temp.path().join("libraries").join(&info.id));
+        let dir = library_dir(temp.path(), &info.id);
         assert!(dir.exists(), "library dir exists after create");
 
         remove_library(temp.path(), &info.id).unwrap();

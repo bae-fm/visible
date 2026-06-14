@@ -2,7 +2,7 @@
 //! session — that is [`crate::app::bootstrap`]'s job. Creation opens the DB once
 //! transiently to lay down the root node, then drops the handle.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use coven::config::{Config, ConfigYaml};
 use coven::id_provider::IdProvider;
@@ -12,6 +12,21 @@ use tracing::{debug, warn};
 use crate::app::open_database;
 use crate::error::CoreError;
 use crate::node;
+
+/// The directory that holds every library: `<data_dir>/libraries`. coven's
+/// `LibraryDir::create` writes a library's root one level under here.
+pub(crate) fn libraries_root(data_dir: &Path) -> PathBuf {
+    data_dir.join("libraries")
+}
+
+/// The on-disk root for one library: `<data_dir>/libraries/<library_id>`. The
+/// single source for visible's side of coven's library layout — `open_config`,
+/// `discover`, and [`crate::share::remove_library`] all resolve a library's
+/// directory through here so the scheme can't drift between reading, listing, and
+/// removing a library.
+pub(crate) fn library_dir(data_dir: &Path, library_id: &str) -> LibraryDir {
+    LibraryDir::new(libraries_root(data_dir).join(library_id))
+}
 
 /// A library as seen from outside an open session: its identity, for the
 /// picker. The live tree comes from [`crate::app::bootstrap`].
@@ -47,7 +62,7 @@ impl From<&Config> for LibraryInfo {
 /// `libraries/` directory is the normal first-launch state (empty list); any
 /// other failure to read it surfaces as an error.
 pub fn discover(data_dir: &Path) -> Result<Vec<LibraryInfo>, CoreError> {
-    let libraries_dir = data_dir.join("libraries");
+    let libraries_dir = libraries_root(data_dir);
     let entries = match std::fs::read_dir(&libraries_dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -142,7 +157,7 @@ pub fn create_default(data_dir: &Path) -> Result<LibraryInfo, CoreError> {
 /// `config.yaml`. The device id comes from the yaml; its absence is corruption
 /// (greenfield always writes it), surfaced as an error rather than defaulted.
 pub fn open_config(data_dir: &Path, library_id: &str) -> Result<Config, CoreError> {
-    let library_dir = LibraryDir::new(data_dir.join("libraries").join(library_id));
+    let library_dir = library_dir(data_dir, library_id);
     let text = std::fs::read_to_string(library_dir.config_path())
         .map_err(|e| CoreError::Config(format!("reading config for library {library_id}: {e}")))?;
     let yaml: ConfigYaml = serde_yaml::from_str(&text)

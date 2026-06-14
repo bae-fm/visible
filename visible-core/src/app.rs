@@ -28,57 +28,79 @@ pub struct RunningApp {
     pub sync: Arc<Sync>,
 }
 
+/// The host synced tables every visible library carries: the node tree and the
+/// immutable image-blob rows (`node_images` carries the image blobs, see
+/// [`crate::blob_plan`]). The single source for both opening a library
+/// ([`open_database`]) and joining/restoring one ([`crate::share`]), so the
+/// schema contract can't drift between the two. coven injects its own `item_keys`.
+pub(crate) fn synced_tables() -> Vec<SyncedTable> {
+    vec![SyncedTable::new("nodes"), SyncedTable::new("node_images")]
+}
+
 /// Open the coven database for one library and run the schema. coven owns the
 /// connection: [`Database::open`] runs its bookkeeping migration, then the schema
 /// ([`SCHEMA`] creates `nodes` and `node_images`), seeds the `_updated_at`
 /// register off the rows on disk, and hands back the non-optional stamper every
-/// node write binds. `nodes` and `node_images` are the host synced tables; coven
-/// injects its own `item_keys`. `node_images` carries the image blobs (see
-/// [`crate::blob_plan`]).
+/// node write binds.
 pub fn open_database(
     library_dir: &LibraryDir,
     device_id: String,
 ) -> Result<(Database, UpdatedAtStamper), CoreError> {
-    Database::open(
-        &library_dir.db_path(),
-        vec![SyncedTable::new("nodes"), SyncedTable::new("node_images")],
-        device_id,
-        |conn| conn.execute_batch(SCHEMA).map_err(Into::into),
-    )
+    Database::open(&library_dir.db_path(), synced_tables(), device_id, |conn| {
+        conn.execute_batch(SCHEMA).map_err(Into::into)
+    })
     .map_err(Into::into)
 }
 
-/// Open `library_id` under `data_dir` and bring up its [`Inventory`] and
-/// [`Sync`] service.
+/// Run `work` on a thread with a 32 MB stack holding a multi-thread tokio runtime,
+/// and hand that runtime to `work` by value. Opening the database, building the
+/// sync manager, and `block_on`-ing the async sync setup (and the join/restore
+/// snapshot download) nest deep async state machines that aren't collapsed in
+/// debug builds, so they need more stack than the platform worker the bridge
+/// calls from provides (a Swift Task or Android coroutine), which would overflow
+/// and crash. The runtime's own workers get a 16 MB stack for the same reason.
 ///
-/// Runs the build on a thread with a 32 MB stack: opening the database, building
-/// the sync manager, and `block_on`-ing the async sync setup nest deep async
-/// state machines that aren't collapsed in debug builds, so they need more stack
-/// than the platform worker the bridge calls this from provides (a Swift Task or
-/// Android coroutine), which would overflow and crash. The work runs on this
-/// dedicated thread and hands the result back.
-pub fn bootstrap(data_dir: &Path, library_id: String) -> Result<RunningApp, CoreError> {
-    let data_dir = data_dir.to_path_buf();
+/// `work` owns the runtime: [`bootstrap`] moves it into the returned [`RunningApp`]
+/// (the bridge keeps blocking on it for later calls); the join/restore paths use
+/// it for the one download and drop it when they return.
+pub(crate) fn on_bootstrap_stack<T: Send + 'static>(
+    name: &str,
+    work: impl FnOnce(tokio::runtime::Runtime) -> Result<T, CoreError> + Send + 'static,
+) -> Result<T, CoreError> {
+    let name = name.to_string();
+    let thread_name = name.clone();
     std::thread::Builder::new()
-        .name("visible-bootstrap".to_string())
+        .name(thread_name)
         .stack_size(32 * 1024 * 1024)
-        .spawn(move || bootstrap_inner(&data_dir, library_id))
-        .map_err(|e| CoreError::Internal(format!("spawning bootstrap thread: {e}")))?
+        .spawn(move || {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .thread_stack_size(16 * 1024 * 1024)
+                .enable_all()
+                .build()
+                .map_err(|e| CoreError::Internal(format!("building tokio runtime: {e}")))?;
+            work(runtime)
+        })
+        .map_err(|e| CoreError::Internal(format!("spawning {name} thread: {e}")))?
         .join()
-        .map_err(|_| CoreError::Internal("bootstrap thread panicked".into()))?
+        .map_err(|_| CoreError::Internal(format!("{name} thread panicked")))?
 }
 
-fn bootstrap_inner(data_dir: &Path, library_id: String) -> Result<RunningApp, CoreError> {
-    let config = open_config(data_dir, &library_id)?;
+/// Open `library_id` under `data_dir` and bring up its [`Inventory`] and
+/// [`Sync`] service. Runs on the bootstrap stack (see [`on_bootstrap_stack`]),
+/// whose runtime moves into the returned [`RunningApp`].
+pub fn bootstrap(data_dir: &Path, library_id: String) -> Result<RunningApp, CoreError> {
+    let data_dir = data_dir.to_path_buf();
+    on_bootstrap_stack("visible-bootstrap", move |runtime| {
+        bootstrap_inner(runtime, &data_dir, library_id)
+    })
+}
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        // The sync cycle (snapshot creation, changeset apply) runs on these
-        // workers and is deep in debug builds; the default 2 MB stack can
-        // overflow. Give them room.
-        .thread_stack_size(16 * 1024 * 1024)
-        .enable_all()
-        .build()
-        .map_err(|e| CoreError::Internal(format!("building tokio runtime: {e}")))?;
+fn bootstrap_inner(
+    runtime: tokio::runtime::Runtime,
+    data_dir: &Path,
+    library_id: String,
+) -> Result<RunningApp, CoreError> {
+    let config = open_config(data_dir, &library_id)?;
 
     let (db, stamper) = open_database(&config.library_dir, config.device_id.clone())?;
 
