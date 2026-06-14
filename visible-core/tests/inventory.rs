@@ -7,6 +7,7 @@ use chrono::{TimeZone, Utc};
 use coven::clock::{ClockRef, FixedClock};
 use coven::id_provider::{IdRef, SequentialIdProvider};
 use coven::library_dir::LibraryDir;
+use coven::rusqlite::OptionalExtension;
 use coven::{Database, UpdatedAtStamper};
 use tempfile::TempDir;
 use visible_core::app::open_database;
@@ -312,16 +313,42 @@ async fn path_to_missing_node_is_not_found() {
     );
 }
 
-/// The cloud key coven's blob layout and the outbox both use for an image:
-/// `images/{ab}/{cd}/{image_id}`. The test builds it the same way the node write
-/// does (via coven's `LibraryDir::hashed_path`) so it asserts the real key, not
-/// a hand-spelled one.
-fn image_cloud_key(image_id: &str) -> String {
-    LibraryDir::hashed_path("images", image_id)
+/// Whether a `node_images` row exists for `image_id`. Images push to peers as
+/// `node_images` INSERTs over coven's changeset channel (see
+/// [`visible_core::blob_plan`]), so the presence of this row is what coven's blob
+/// plan carries to an online peer — there is no image upload in the cloud outbox.
+async fn node_image_exists(db: &Database, image_id: &str) -> bool {
+    let image_id = image_id.to_string();
+    db.call(move |conn| {
+        conn.query_row(
+            "SELECT 1 FROM node_images WHERE id = ?1",
+            [image_id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map(|row| row.is_some())
+        .map_err(Into::into)
+    })
+    .await
+    .unwrap()
+}
+
+/// The image ids of every `node_images` row owned by `node_id`.
+async fn node_image_ids_for(db: &Database, node_id: &str) -> Vec<String> {
+    let node_id = node_id.to_string();
+    db.call(move |conn| {
+        let mut stmt = conn.prepare("SELECT id FROM node_images WHERE node_id = ?1")?;
+        let ids = stmt
+            .query_map([node_id], |r| r.get::<_, String>(0))?
+            .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+        Ok(ids)
+    })
+    .await
+    .unwrap()
 }
 
 #[tokio::test]
-async fn create_child_with_image_enqueues_the_upload_in_the_outbox() {
+async fn create_child_with_image_records_a_node_image_row_and_no_outbox_upload() {
     let (inv, db, _temp) = open_inventory_with_db().await;
 
     let node = inv
@@ -330,14 +357,15 @@ async fn create_child_with_image_enqueues_the_upload_in_the_outbox() {
         .unwrap();
     let image_id = node.image_id.unwrap();
 
-    let uploads = db.get_pending_cloud_uploads().await.unwrap();
-    assert_eq!(uploads.len(), 1, "one upload queued for the new image");
-    assert_eq!(uploads[0].cloud_key, image_cloud_key(&image_id));
+    // The image is carried by its node_images INSERT over the changeset channel,
+    // not by a cloud-outbox upload.
+    assert_eq!(node_image_ids_for(&db, &node.id).await, vec![image_id]);
+    assert!(db.get_pending_cloud_uploads().await.unwrap().is_empty());
     assert!(db.get_pending_cloud_deletes().await.unwrap().is_empty());
 }
 
 #[tokio::test]
-async fn set_image_enqueues_new_upload_and_old_delete() {
+async fn set_image_replaces_the_node_image_row_and_enqueues_the_old_delete() {
     let (inv, db, _temp) = open_inventory_with_db().await;
 
     let node = inv
@@ -349,18 +377,18 @@ async fn set_image_enqueues_new_upload_and_old_delete() {
     inv.set_image(&node.id, b"second".to_vec()).await.unwrap();
     let second_image = inv.get(&node.id).await.unwrap().unwrap().image_id.unwrap();
 
-    // Both images are queued for upload (the first from create, the second from
-    // set_image); the replaced first image is queued for cloud deletion.
-    let upload_keys: Vec<String> = db
-        .get_pending_cloud_uploads()
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|e| e.cloud_key)
-        .collect();
-    assert!(upload_keys.contains(&image_cloud_key(&first_image)));
-    assert!(upload_keys.contains(&image_cloud_key(&second_image)));
+    // The node now owns exactly the replacement image row (old row deleted, new
+    // row inserted — never an UPDATE), so the new image rides a fresh INSERT to a
+    // peer. No image goes through the outbox upload channel.
+    assert_eq!(
+        node_image_ids_for(&db, &node.id).await,
+        vec![second_image.clone()]
+    );
+    assert!(node_image_exists(&db, &second_image).await);
+    assert!(!node_image_exists(&db, &first_image).await);
+    assert!(db.get_pending_cloud_uploads().await.unwrap().is_empty());
 
+    // The replaced image's cloud blob is queued for deletion.
     let delete_keys: Vec<String> = db
         .get_pending_cloud_deletes()
         .await
@@ -368,7 +396,10 @@ async fn set_image_enqueues_new_upload_and_old_delete() {
         .into_iter()
         .map(|e| e.cloud_key)
         .collect();
-    assert_eq!(delete_keys, vec![image_cloud_key(&first_image)]);
+    assert_eq!(
+        delete_keys,
+        vec![visible_core::node::image_cloud_key(&first_image)]
+    );
 }
 
 #[tokio::test]
@@ -388,6 +419,12 @@ async fn delete_enqueues_a_cloud_delete_for_every_image_in_the_subtree() {
 
     inv.delete(&room.id).await.unwrap();
 
+    // The subtree's node_images rows cascade off the node DELETE.
+    assert!(!node_image_exists(&db, &room_image).await);
+    assert!(!node_image_exists(&db, &thing_image).await);
+
+    // Each image's cloud blob is queued for deletion (built with the production
+    // cloud-key function, not a re-spelled one).
     let delete_keys: Vec<String> = db
         .get_pending_cloud_deletes()
         .await
@@ -395,6 +432,6 @@ async fn delete_enqueues_a_cloud_delete_for_every_image_in_the_subtree() {
         .into_iter()
         .map(|e| e.cloud_key)
         .collect();
-    assert!(delete_keys.contains(&image_cloud_key(&room_image)));
-    assert!(delete_keys.contains(&image_cloud_key(&thing_image)));
+    assert!(delete_keys.contains(&visible_core::node::image_cloud_key(&room_image)));
+    assert!(delete_keys.contains(&visible_core::node::image_cloud_key(&thing_image)));
 }

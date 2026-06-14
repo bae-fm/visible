@@ -7,16 +7,21 @@
 //! ## Image blobs and cloud sync
 //!
 //! A node's image is stored locally as a content-addressed plaintext file named
-//! by `image_id`. When a cloud provider is connected, coven uploads an encrypted
-//! copy of that file as a blob. visible records the upload/delete intent in
-//! coven's cloud outbox, inside the same `db.call` closure that writes the node
-//! row, so a row never reaches a peer without its image's upload queued (coven's
-//! changeset push gates on pending uploads). The intents are recorded
-//! unconditionally — for a local-only library the outbox simply never drains.
-//! See [`crate::blob_plan`] for why uploads go through the outbox rather than the
-//! changeset blob channel.
+//! by its image id. Each image is also an immutable row in the synced
+//! `node_images` table (id = image id, `node_id` = the owning node); `nodes`
+//! keeps `image_id` as the pointer to the current image. A node's image is
+//! always added as a fresh `node_images` INSERT and removed as a DELETE — the
+//! row is never updated, so replacing a photo is "DELETE the old row, INSERT a
+//! new one", never an UPDATE.
+//!
+//! That immutability is what makes images propagate over cloud sync: coven's
+//! blob channel uploads a blob for every INSERT it pushes (see
+//! [`crate::blob_plan`]), so a new image — whether the first photo on a node or
+//! a replacement — rides its `node_images` INSERT to every online peer. Image
+//! deletes go through coven's cloud outbox (the blob delete is enqueued after the
+//! row is gone), and the intent is recorded unconditionally — for a local-only
+//! library the outbox simply never drains.
 
-use coven::blob::BlobScope;
 use coven::clock::ClockRef;
 use coven::id_provider::IdRef;
 use coven::library_dir::LibraryDir;
@@ -62,9 +67,11 @@ const NODE_COLUMNS: &str = "id, parent_id, name, position, image_id";
 const IMAGE_NAMESPACE: &str = "images";
 
 /// The cloud key for an image blob: `images/{ab}/{cd}/{image_id}`. coven's blob
-/// layout and outbox use the same content-addressed key, so an outbox-enqueued
-/// upload and a changeset-channel upload of the same image write the same object.
-fn image_cloud_key(image_id: &str) -> String {
+/// layout and cloud outbox use the same content-addressed key, so the changeset
+/// channel upload of a `node_images` INSERT and the outbox delete of the same
+/// image name the same object. The single home for this key, called by the
+/// delete path here and by the integration tests asserting outbox intents.
+pub fn image_cloud_key(image_id: &str) -> String {
     LibraryDir::hashed_path(IMAGE_NAMESPACE, image_id)
 }
 
@@ -183,13 +190,14 @@ impl Inventory {
 
     /// Append an untitled child to `parent_id` carrying `bytes` as its one image,
     /// in a single step that leaves no half-state. The image file is written
-    /// first: if that fails, no node is created. The node row is then inserted
-    /// with its `image_id` already set and `name = NULL` (a photo-first child
-    /// starts untitled until renamed), and the image's cloud upload is enqueued
-    /// in the same connection call as the insert, so the row and its upload
-    /// intent commit together. If the insert fails, the just-written file is
-    /// unlinked. Either both the node row and its image file exist, or neither —
-    /// never a node with a missing image or an image with no node.
+    /// first: if that fails, no node is created. Then one connection call inserts
+    /// the node row (its `image_id` set, `name = NULL` — a photo-first child
+    /// starts untitled until renamed) and the matching `node_images` row, so the
+    /// node and its image row commit together. The `node_images` INSERT is what
+    /// carries the image blob to peers over coven's changeset channel. If the
+    /// insert fails, the just-written file is unlinked. Either both the node row
+    /// and its image file exist, or neither — never a node with a missing image
+    /// or an image with no node.
     pub async fn create_child_with_image(
         &self,
         parent_id: &str,
@@ -200,13 +208,7 @@ impl Inventory {
         let id = self.ids.new_id();
         let parent_id = parent_id.to_string();
         let updated_at = self.stamper.stamp();
-        let created_at = self.clock.now().to_rfc3339();
         let row_image_id = image_id.clone();
-        let source_path = self
-            .dir
-            .image_path(&image_id)
-            .to_string_lossy()
-            .into_owned();
         let inserted = self
             .db
             .call(move |conn| {
@@ -216,14 +218,7 @@ impl Inventory {
                      VALUES (?1, ?2, NULL, ?3, ?4, ?5)",
                     params![id, parent_id, position, row_image_id, updated_at],
                 )?;
-                Database::enqueue_upload_on(
-                    conn,
-                    &row_image_id,
-                    &image_cloud_key(&row_image_id),
-                    Some(&source_path),
-                    BlobScope::Master,
-                    &created_at,
-                )?;
+                insert_node_image(conn, &row_image_id, &id, &updated_at)?;
                 Ok(Node {
                     id,
                     parent_id: Some(parent_id),
@@ -264,7 +259,8 @@ impl Inventory {
     }
 
     /// Delete a node and its whole subtree (the `parent_id` self-FK cascades the
-    /// row deletes), then remove the subtree's image files from disk and enqueue
+    /// node row deletes, and each node's `node_images` rows cascade off their
+    /// `node_id` FK), then remove the subtree's image files from disk and enqueue
     /// each image's cloud blob for deletion. The image ids are collected and the
     /// rows deleted in one connection call, so no concurrent insert can slip into
     /// the subtree between collect and delete. The cloud deletes are enqueued
@@ -302,16 +298,17 @@ impl Inventory {
                     Some(None) => Ok(Outcome::IsRoot),
                     Some(Some(_)) => {
                         // Walk the subtree down `parent_id`, collecting every
-                        // node's image_id; the root of the walk is the node being
-                        // deleted.
+                        // image row's id from `node_images`; the root of the walk
+                        // is the node being deleted. These ids drive the cloud
+                        // deletes and on-disk unlinks below; the rows themselves
+                        // cascade off the node DELETE.
                         let mut stmt = conn.prepare(
                             "WITH RECURSIVE subtree(id) AS (
                                  SELECT id FROM nodes WHERE id = ?1
                                  UNION ALL
                                  SELECT n.id FROM nodes n JOIN subtree s ON n.parent_id = s.id
                              )
-                             SELECT n.image_id FROM nodes n JOIN subtree s ON n.id = s.id \
-                             WHERE n.image_id IS NOT NULL",
+                             SELECT ni.id FROM node_images ni JOIN subtree s ON ni.node_id = s.id",
                         )?;
                         let image_ids = stmt
                             .query_map([&id_owned], |r| r.get::<_, String>(0))?
@@ -336,11 +333,15 @@ impl Inventory {
         }
     }
 
-    /// Set a node's image: write `bytes` to a fresh content-addressed file, point
-    /// the node at it and enqueue the new image's upload in one connection call,
-    /// then unlink the previous image file and enqueue its cloud blob for
-    /// deletion if there was one. NotFound if the node doesn't exist — checked
-    /// before any file is written so a missing node leaves no orphan file behind.
+    /// Set a node's image: write `bytes` to a fresh content-addressed file, then
+    /// in one connection call insert a new `node_images` row, re-point the node
+    /// at it, and delete the old image's row. The new `node_images` INSERT is
+    /// what carries the replacement blob to peers over coven's changeset channel
+    /// (an immutable row, never an UPDATE, so the new value is always readable).
+    /// After the row write, unlink the previous image file and enqueue its cloud
+    /// blob for deletion if there was one. NotFound if the node doesn't exist —
+    /// checked before any file is written so a missing node leaves no orphan file
+    /// behind.
     pub async fn set_image(&self, id: &str, bytes: Vec<u8>) -> Result<(), CoreError> {
         let existing = self
             .get(id)
@@ -350,29 +351,21 @@ impl Inventory {
         let image_id = self.store_new_image(&bytes)?;
 
         let updated_at = self.stamper.stamp();
-        let created_at = self.clock.now().to_rfc3339();
         let id = id.to_string();
         let new_image_id = image_id.clone();
-        let source_path = self
-            .dir
-            .image_path(&image_id)
-            .to_string_lossy()
-            .into_owned();
+        let old_image_id = existing.image_id.clone();
         let update = self
             .db
             .call(move |conn| {
+                insert_node_image(conn, &new_image_id, &id, &updated_at)?;
                 conn.execute(
                     "UPDATE nodes SET image_id = ?1, _updated_at = ?2 WHERE id = ?3",
                     params![new_image_id, updated_at, id],
                 )?;
-                Database::enqueue_upload_on(
-                    conn,
-                    &new_image_id,
-                    &image_cloud_key(&new_image_id),
-                    Some(&source_path),
-                    BlobScope::Master,
-                    &created_at,
-                )
+                if let Some(old) = &old_image_id {
+                    conn.execute("DELETE FROM node_images WHERE id = ?1", [old])?;
+                }
+                Ok(())
             })
             .await;
         if update.is_err() {
@@ -464,10 +457,34 @@ fn next_position(conn: &Connection, parent_id: &str) -> coven::rusqlite::Result<
     )
 }
 
-/// The `nodes` schema run by [`crate::app::bootstrap`]'s migrate closure. coven
-/// runs its own bookkeeping migration first, then this. `parent_id` is a
-/// self-FK with `ON DELETE CASCADE` (coven turns `foreign_keys` ON), so deleting
-/// a node deletes its whole subtree in one statement.
+/// Insert one immutable `node_images` row (id = image id, `node_id` = the owning
+/// node). Shares the node write's register stamp so the image row and the node
+/// it belongs to carry the same sync timestamp. Called inside the same
+/// connection call as the node INSERT/UPDATE so the two commit together.
+fn insert_node_image(
+    conn: &Connection,
+    image_id: &str,
+    node_id: &str,
+    updated_at: &str,
+) -> coven::rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO node_images (id, node_id, _updated_at) VALUES (?1, ?2, ?3)",
+        params![image_id, node_id, updated_at],
+    )?;
+    Ok(())
+}
+
+/// The schema run by [`crate::app::bootstrap`]'s migrate closure. coven runs its
+/// own bookkeeping migration first, then this. `parent_id` is a self-FK with
+/// `ON DELETE CASCADE` (coven turns `foreign_keys` ON), so deleting a node
+/// deletes its whole subtree in one statement.
+///
+/// `node_images` is the synced table that carries image blobs: each row is one
+/// image (id = image id), `node_id` references the owning node `ON DELETE
+/// CASCADE` so deleting a node drops its image rows. The row is immutable —
+/// inserted when an image is added, deleted when it is removed or replaced,
+/// never updated — so every image change is an INSERT or DELETE that coven's
+/// blob channel can carry. `nodes.image_id` points at the current image's id.
 pub const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS nodes (
     id          TEXT PRIMARY KEY NOT NULL,
@@ -478,6 +495,12 @@ CREATE TABLE IF NOT EXISTS nodes (
     _updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id, position);
+CREATE TABLE IF NOT EXISTS node_images (
+    id          TEXT PRIMARY KEY NOT NULL,
+    node_id     TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    _updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_node_images_node ON node_images(node_id);
 ";
 
 /// Insert the root house node (parent NULL, position 0) with the given name. Used

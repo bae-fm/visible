@@ -1,27 +1,20 @@
-//! visible's [`coven::blob::BlobPlan`]: which node rows carry image blobs, where
-//! their plaintext lives locally, and how each is scoped for encryption.
+//! visible's [`coven::blob::BlobPlan`]: which rows carry image blobs, where their
+//! plaintext lives locally, and how each is scoped for encryption.
 //!
 //! coven owns the cloud blob layout (`images/{ab}/{cd}/{id}`) and encryption;
-//! visible decides that a node's image file is its blob, located on disk at
+//! visible decides that a `node_images` row is one image blob, located on disk at
 //! [`LibraryDir::image_path`], encrypted with the library master key.
 //!
-//! ## The two blob channels and why uploads go through the outbox
-//!
-//! coven moves a blob two ways: the *changeset channel* (this plan's
-//! `blobs_to_push`/`blobs_to_pull`, walking a changeset's [`RowChange`]s) and the
-//! *outbox* ([`coven::Database::enqueue_upload_on`], drained per cycle). visible
-//! uploads through the outbox (see [`crate::node`]) because the changeset channel
-//! cannot key an image by the *new* `image_id` on an UPDATE: a captured UPDATE
-//! [`RowChange`] exposes only the OLD value of a changed column
-//! (`RowChange::col` collapses to the old value when present), and `set_image`
-//! re-points `image_id` on an UPDATE. So:
-//!
-//! - `blobs_to_push`/`blobs_to_pull` recognize **INSERTs** — the only op whose
-//!   `image_id` column reads as the new value — carrying a new node's photo to an
-//!   online peer over the incremental pull.
-//! - `blobs_in_db` enumerates every node's *current* `image_id`, so a snapshot
-//!   bootstrap lands the right files and a `set_image` (UPDATE) propagates to an
-//!   already-synced peer through the next snapshot.
+//! `node_images` is immutable: a row is inserted when an image is added and
+//! deleted when it is removed or replaced, never updated (see [`crate::node`]).
+//! That is why the changeset channel carries images correctly. coven uploads a
+//! blob for every INSERT it pushes and downloads one for every INSERT it pulls,
+//! keyed by the row's primary key — which is the image id. Because replacing a
+//! photo is "DELETE the old row, INSERT a new one" rather than an UPDATE, the new
+//! image always rides a fresh INSERT to an already-synced peer; there is no
+//! UPDATE whose changeset would expose only the old (replaced) value. Deletes
+//! carry no blob to move — the cloud blob delete is enqueued separately through
+//! coven's cloud outbox.
 
 use coven::blob::{BlobPlan, BlobRef, BlobScope};
 use coven::changeset::{ChangeOp, RowChange};
@@ -29,17 +22,11 @@ use coven::library_dir::LibraryDir;
 use coven::rusqlite::Connection;
 use tracing::warn;
 
-/// The synced table whose rows carry image blobs.
-const NODES_TABLE: &str = "nodes";
+/// The synced table whose rows are image blobs (one row per image, primary key =
+/// image id).
+const NODE_IMAGES_TABLE: &str = "node_images";
 
-/// Column index of `image_id` in the `nodes` schema
-/// (`id, parent_id, name, position, image_id, _updated_at`). The blob id for a
-/// node row is this column's value, not the row primary key (col 0): the image
-/// file is content-addressed by `image_id`, which is null for an imageless node
-/// and changes when the photo is replaced.
-const IMAGE_ID_COL: usize = 4;
-
-/// Maps visible's image-bearing node rows to their cloud blobs.
+/// Maps visible's `node_images` rows to their cloud blobs.
 pub struct NodeBlobPlan {
     dir: LibraryDir,
 }
@@ -61,22 +48,21 @@ impl NodeBlobPlan {
         }
     }
 
-    /// The image blobs an INSERT changeset references. An INSERT's `image_id`
-    /// column reads as the new value, so this carries a new node's photo across
-    /// the changeset channel. UPDATEs are excluded: a changeset exposes only the
-    /// old value of a changed column, so an UPDATE's `image_id` would name the
-    /// replaced (already-deleted) file, not the new one — `set_image` uploads the
-    /// new image through the outbox and propagates it to peers via the snapshot.
-    /// Deletes carry no blob to move (the cloud delete is enqueued separately).
+    /// The image blobs an INSERT changeset references. A `node_images` row's
+    /// primary key is the image id, and the table is immutable, so a row's blob is
+    /// always carried by the INSERT that adds it — the same INSERT whether the
+    /// image is a node's first photo or a replacement. UPDATEs never occur on this
+    /// table; a DELETE carries no blob to move (its cloud blob delete is enqueued
+    /// separately).
     fn inserted_image_refs(&self, changes: &[RowChange]) -> Vec<BlobRef> {
         let mut refs = Vec::new();
         for change in changes {
-            if change.table != NODES_TABLE || change.op != ChangeOp::Insert {
+            if change.table != NODE_IMAGES_TABLE || change.op != ChangeOp::Insert {
                 continue;
             }
-            // An imageless node has a NULL `image_id` and carries no blob.
-            if let Some(image_id) = change.col(IMAGE_ID_COL) {
-                refs.push(self.image_ref(image_id));
+            match change.pk() {
+                Some(image_id) => refs.push(self.image_ref(image_id)),
+                None => warn!("node_images INSERT has no primary key; skipping its blob"),
             }
         }
         refs
@@ -92,14 +78,14 @@ impl BlobPlan for NodeBlobPlan {
         self.inserted_image_refs(changes)
     }
 
-    /// Every image a node row currently references, for the snapshot-bootstrap
-    /// backfill. Reads the live `image_id` of each node — the current value after
-    /// any `set_image` — so this is also how a photo replacement reaches an
-    /// already-synced peer (the incremental UPDATE pull can't name the new image;
-    /// the next snapshot can). Every image encrypts with the master key, exactly
-    /// as the changeset path scopes it.
+    /// Every image currently in the DB, for the snapshot-bootstrap backfill. A
+    /// device that bootstraps from a snapshot receives the `node_images` rows but
+    /// not their files (the snapshot carries no blobs, and the incremental pull
+    /// starts past the INSERTs that first carried them), so coven downloads the
+    /// missing ones from this list. Every image encrypts with the master key,
+    /// exactly as the changeset path scopes it.
     fn blobs_in_db(&self, conn: &Connection) -> coven::rusqlite::Result<Vec<BlobRef>> {
-        let mut stmt = conn.prepare("SELECT image_id FROM nodes WHERE image_id IS NOT NULL")?;
+        let mut stmt = conn.prepare("SELECT id FROM node_images")?;
         let image_ids = stmt
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<coven::rusqlite::Result<Vec<_>>>()?;
@@ -118,30 +104,27 @@ mod tests {
         NodeBlobPlan::new(LibraryDir::new("/lib"))
     }
 
-    /// `nodes` columns in schema order: id, parent_id, name, position, image_id,
-    /// _updated_at. A changeset row carries every column; the value chosen per
-    /// column follows the op's old/new semantics, which the caller can't override.
-    fn node_row(op: ChangeOp, id: &str, image_id: Option<&str>) -> RowChange {
+    /// A `node_images` changeset row in schema order: id, node_id, _updated_at.
+    /// The value chosen per column follows the op's old/new semantics, which the
+    /// caller can't override — but the primary key (id) is present for every op.
+    fn node_image_row(op: ChangeOp, image_id: &str) -> RowChange {
         RowChange {
-            table: NODES_TABLE.to_string(),
+            table: NODE_IMAGES_TABLE.to_string(),
             op,
             columns: vec![
-                Some(id.to_string()),
-                Some("parent".to_string()),
-                Some("name".to_string()),
-                Some("0".to_string()),
-                image_id.map(str::to_string),
+                Some(image_id.to_string()),
+                Some("node-1".to_string()),
                 Some("stamp".to_string()),
             ],
         }
     }
 
     #[test]
-    fn insert_with_image_yields_a_master_scoped_blob_keyed_by_image_id() {
-        let refs = plan().blobs_to_push(&[node_row(ChangeOp::Insert, "node-1", Some("img-1"))]);
+    fn insert_yields_a_master_scoped_blob_keyed_by_image_id() {
+        let refs = plan().blobs_to_push(&[node_image_row(ChangeOp::Insert, "img-1")]);
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].namespace, "images");
-        // Keyed by the image_id column, not the node primary key.
+        // Keyed by the node_images primary key, which is the image id.
         assert_eq!(refs[0].id, "img-1");
         assert_eq!(refs[0].scope, BlobScope::Master);
         assert_eq!(
@@ -151,20 +134,12 @@ mod tests {
     }
 
     #[test]
-    fn insert_without_image_carries_no_blob() {
-        assert!(plan()
-            .blobs_to_push(&[node_row(ChangeOp::Insert, "node-1", None)])
-            .is_empty());
-    }
-
-    #[test]
     fn updates_and_deletes_carry_no_changeset_blob() {
-        // An UPDATE's image_id column reads as the OLD (replaced) value, so the
-        // changeset channel must not act on it; the new image moves via the
-        // outbox. A DELETE's blob removal is a separate outbox delete.
+        // node_images is never UPDATEd in practice; were one to appear it must not
+        // move a blob. A DELETE's blob removal is a separate outbox delete.
         let changes = [
-            node_row(ChangeOp::Update, "node-1", Some("img-old")),
-            node_row(ChangeOp::Delete, "node-1", Some("img-1")),
+            node_image_row(ChangeOp::Update, "img-1"),
+            node_image_row(ChangeOp::Delete, "img-1"),
         ];
         assert!(plan().blobs_to_push(&changes).is_empty());
         assert!(plan().blobs_to_pull(&changes).is_empty());
@@ -172,7 +147,7 @@ mod tests {
 
     #[test]
     fn pull_matches_push() {
-        let changes = [node_row(ChangeOp::Insert, "node-1", Some("img-1"))];
+        let changes = [node_image_row(ChangeOp::Insert, "img-1")];
         let push = plan().blobs_to_push(&changes);
         let pull = plan().blobs_to_pull(&changes);
         assert_eq!(push.len(), pull.len());
@@ -181,21 +156,19 @@ mod tests {
 
     #[test]
     fn other_tables_carry_no_blobs() {
-        let mut row = node_row(ChangeOp::Insert, "x", Some("img-1"));
-        row.table = "item_keys".to_string();
+        let mut row = node_image_row(ChangeOp::Insert, "img-1");
+        row.table = "nodes".to_string();
         assert!(plan().blobs_to_push(&[row]).is_empty());
     }
 
     #[test]
-    fn blobs_in_db_lists_every_node_with_an_image() {
+    fn blobs_in_db_lists_every_image_row_with_master_scope() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
-            "CREATE TABLE nodes (\
-                 id TEXT PRIMARY KEY, parent_id TEXT, name TEXT, position INTEGER, \
-                 image_id TEXT, _updated_at TEXT NOT NULL);\n\
-             INSERT INTO nodes VALUES ('n1', NULL, 'house', 0, NULL, 's');\n\
-             INSERT INTO nodes VALUES ('n2', 'n1', NULL, 0, 'img-2', 's');\n\
-             INSERT INTO nodes VALUES ('n3', 'n1', 'box', 1, 'img-3', 's');",
+            "CREATE TABLE node_images (\
+                 id TEXT PRIMARY KEY, node_id TEXT NOT NULL, _updated_at TEXT NOT NULL);\n\
+             INSERT INTO node_images VALUES ('img-2', 'n2', 's');\n\
+             INSERT INTO node_images VALUES ('img-3', 'n3', 's');",
         )
         .unwrap();
 

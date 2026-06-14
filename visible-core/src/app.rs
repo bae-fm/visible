@@ -29,17 +29,19 @@ pub struct RunningApp {
 }
 
 /// Open the coven database for one library and run the schema. coven owns the
-/// connection: [`Database::open`] runs its bookkeeping migration, then the
-/// `nodes` schema, seeds the `_updated_at` register off the rows on disk, and
-/// hands back the non-optional stamper every node write binds. `nodes` is the
-/// only host synced table; coven injects its own `item_keys`.
+/// connection: [`Database::open`] runs its bookkeeping migration, then the schema
+/// ([`SCHEMA`] creates `nodes` and `node_images`), seeds the `_updated_at`
+/// register off the rows on disk, and hands back the non-optional stamper every
+/// node write binds. `nodes` and `node_images` are the host synced tables; coven
+/// injects its own `item_keys`. `node_images` carries the image blobs (see
+/// [`crate::blob_plan`]).
 pub fn open_database(
     library_dir: &LibraryDir,
     device_id: String,
 ) -> Result<(Database, UpdatedAtStamper), CoreError> {
     Database::open(
         &library_dir.db_path(),
-        vec![SyncedTable::new("nodes")],
+        vec![SyncedTable::new("nodes"), SyncedTable::new("node_images")],
         device_id,
         |conn| conn.execute_batch(SCHEMA).map_err(Into::into),
     )
@@ -49,12 +51,12 @@ pub fn open_database(
 /// Open `library_id` under `data_dir` and bring up its [`Inventory`] and
 /// [`Sync`] service.
 ///
-/// Runs the build on a generous-stack thread: opening the database, building the
-/// sync manager, and `block_on`-ing the async sync setup use a deep stack —
-/// especially in debug builds, where async state machines aren't collapsed. The
-/// bridge may call this from a small-stack platform worker (a Swift Task or
-/// Android coroutine), which would overflow and crash, so the work runs on a
-/// thread with room and hands the result back.
+/// Runs the build on a thread with a 32 MB stack: opening the database, building
+/// the sync manager, and `block_on`-ing the async sync setup nest deep async
+/// state machines that aren't collapsed in debug builds, so they need more stack
+/// than the platform worker the bridge calls this from provides (a Swift Task or
+/// Android coroutine), which would overflow and crash. The work runs on this
+/// dedicated thread and hands the result back.
 pub fn bootstrap(data_dir: &Path, library_id: String) -> Result<RunningApp, CoreError> {
     let data_dir = data_dir.to_path_buf();
     std::thread::Builder::new()
@@ -150,5 +152,48 @@ fn resolve_pending_encryption(
             );
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tempfile::TempDir;
+
+    fn config(stored: bool) -> (Config, TempDir) {
+        let temp = TempDir::new().unwrap();
+        let dir = LibraryDir::new(temp.path().join("library"));
+        let mut config = Config::with_defaults(
+            "lib-locked".to_string(),
+            "device".to_string(),
+            dir,
+            "Home".to_string(),
+        );
+        config.encryption_key_stored = stored;
+        (config, temp)
+    }
+
+    #[test]
+    fn no_stored_key_resolves_to_local_only() {
+        crate::config::install_test_keyring();
+        let (config, _temp) = config(false);
+        let key_service = KeyService::new("lib-locked-absent".to_string());
+        // A local-only library never recorded a key; sync stays unbuilt.
+        let resolved = resolve_pending_encryption(&config, &key_service).unwrap();
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn key_marked_stored_but_absent_stays_local_without_crashing() {
+        crate::config::install_test_keyring();
+        // The config says a key was set up, but this device's keyring lacks it
+        // (OS keychain wiped, fresh install with config preserved). Minting a new
+        // key would orphan the cloud data, so resolution must defer to local —
+        // returning None and warning, never panicking or minting.
+        let (config, _temp) = config(true);
+        let key_service = KeyService::new("lib-locked-missing".to_string());
+        let resolved = resolve_pending_encryption(&config, &key_service).unwrap();
+        assert!(resolved.is_none());
     }
 }
