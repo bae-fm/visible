@@ -566,6 +566,117 @@ impl Inventory {
         }
     }
 
+    /// Move a node (with its whole subtree) under a different parent. The subtree
+    /// rides along: only the moved node's own `parent_id` changes, so its
+    /// descendants keep their parents and stay attached.
+    ///
+    /// The check and the write run in one connection call so nothing can slip
+    /// between validating the move and applying it:
+    ///
+    /// - NotFound if `id` or `new_parent_id` doesn't exist.
+    /// - The root house (`parent_id` NULL) cannot be moved — the tree has exactly
+    ///   one root (`CoreError::Internal`, like [`Inventory::delete`]'s root guard).
+    /// - A move into the node's own subtree is rejected: `new_parent_id` must be
+    ///   neither `id` itself nor any descendant of `id`. Re-parenting a node under
+    ///   one of its own descendants would detach that branch from the tree and
+    ///   leave a cycle, so it is refused (`CoreError::Internal`). The subtree is
+    ///   walked with the same recursive CTE [`Inventory::delete`] uses.
+    /// - A move to the parent the node already has is nothing to do, so it returns
+    ///   early without touching `position`.
+    ///
+    /// Otherwise the node's `parent_id` is set to `new_parent_id` and its
+    /// `position` to the next sibling slot under that parent (the same
+    /// `MAX(position) + 1` [`Inventory::create_child_with_image`] appends with), so
+    /// the moved node lands last among its new siblings.
+    pub async fn move_node(&self, id: &str, new_parent_id: &str) -> Result<(), CoreError> {
+        enum Outcome {
+            NotFound,
+            IsRoot,
+            IntoOwnSubtree,
+            NoOp,
+            Moved,
+        }
+
+        let id_owned = id.to_string();
+        let new_parent_owned = new_parent_id.to_string();
+        let updated_at = self.stamper.stamp();
+        let outcome = self
+            .db
+            .call(move |conn| {
+                let current_parent: Option<Option<String>> = conn
+                    .query_row(
+                        "SELECT parent_id FROM nodes WHERE id = ?1",
+                        [&id_owned],
+                        |r| r.get::<_, Option<String>>(0),
+                    )
+                    .optional()?;
+                let current_parent = match current_parent {
+                    None => return Ok(Outcome::NotFound),
+                    // The root has no parent, so it has nowhere to move to.
+                    Some(None) => return Ok(Outcome::IsRoot),
+                    Some(Some(parent)) => parent,
+                };
+
+                // The destination must exist before anything else acts on it.
+                let new_parent_exists = conn
+                    .query_row(
+                        "SELECT 1 FROM nodes WHERE id = ?1",
+                        [&new_parent_owned],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some();
+                if !new_parent_exists {
+                    return Ok(Outcome::NotFound);
+                }
+
+                // Already a child of the destination: nothing to move.
+                if current_parent == new_parent_owned {
+                    return Ok(Outcome::NoOp);
+                }
+
+                // The destination must not be the node itself nor anything inside
+                // its subtree. Walk the subtree down `parent_id` from `id` and
+                // reject if the destination is in it — moving there would detach
+                // the branch and create a cycle.
+                let destination_in_subtree = conn
+                    .query_row(
+                        "WITH RECURSIVE subtree(id) AS (
+                             SELECT id FROM nodes WHERE id = ?1
+                             UNION ALL
+                             SELECT n.id FROM nodes n JOIN subtree s ON n.parent_id = s.id
+                         )
+                         SELECT 1 FROM subtree WHERE id = ?2",
+                        params![&id_owned, &new_parent_owned],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some();
+                if destination_in_subtree {
+                    return Ok(Outcome::IntoOwnSubtree);
+                }
+
+                let position = next_position(conn, &new_parent_owned)?;
+                conn.execute(
+                    "UPDATE nodes SET parent_id = ?1, position = ?2, _updated_at = ?3 WHERE id = ?4",
+                    params![new_parent_owned, position, updated_at, id_owned],
+                )?;
+                Ok(Outcome::Moved)
+            })
+            .await?;
+
+        match outcome {
+            Outcome::NotFound => Err(CoreError::NotFound(format!(
+                "no node {id} or parent {new_parent_id} to move"
+            ))),
+            Outcome::IsRoot => Err(CoreError::Internal("cannot move the root node".into())),
+            Outcome::IntoOwnSubtree => Err(CoreError::Internal(
+                "cannot move a node into its own subtree".into(),
+            )),
+            Outcome::NoOp | Outcome::Moved => Ok(()),
+        }
+    }
+
     /// Set a node's image: write `bytes` to a fresh content-addressed file, then
     /// in one connection call insert a new `node_images` row, re-point the node
     /// at it, and delete the old image's row. The new `node_images` INSERT is

@@ -325,6 +325,172 @@ async fn create_named(inv: &Inventory, parent: &str, name: &str) -> String {
 }
 
 #[tokio::test]
+async fn move_node_reparents_a_leaf_and_appends_it_under_the_new_parent() {
+    let (inv, _temp) = open_inventory().await;
+
+    // Home -> Garage, Home -> Closet (with one existing thing so the moved node
+    // lands at the next position, not 0).
+    let garage = create_named(&inv, "root", "Garage").await;
+    let closet = create_named(&inv, "root", "Closet").await;
+    create_named(&inv, &closet, "Coat").await;
+    let drill = create_named(&inv, &garage, "Drill").await;
+
+    inv.move_node(&drill, &closet).await.unwrap();
+
+    // The moved node now points at its new parent and sits after the existing
+    // closet child.
+    let moved = inv.get(&drill).await.unwrap().unwrap();
+    assert_eq!(moved.parent_id.as_deref(), Some(closet.as_str()));
+    assert_eq!(moved.position, 1);
+
+    // It appears under the new parent and is gone from the old one.
+    let closet_children: Vec<String> = inv
+        .children(&closet)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|n| n.id)
+        .collect();
+    assert!(closet_children.contains(&drill));
+    assert!(inv.children(&garage).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn move_node_carries_its_whole_subtree() {
+    let (inv, _temp) = open_inventory().await;
+
+    // Home -> Garage -> Toolbox -> Wrench, and a separate Home -> Closet.
+    let garage = create_named(&inv, "root", "Garage").await;
+    let closet = create_named(&inv, "root", "Closet").await;
+    let toolbox = create_named(&inv, &garage, "Toolbox").await;
+    let wrench = create_named(&inv, &toolbox, "Wrench").await;
+
+    // Move the toolbox (with the wrench inside it) under the closet.
+    inv.move_node(&toolbox, &closet).await.unwrap();
+
+    // The grandchild still resolves under the moved node: its breadcrumb is now
+    // Home -> Closet -> Toolbox -> Wrench, proving the subtree travelled intact.
+    let path: Vec<String> = inv
+        .path_to(&wrench)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|n| n.id)
+        .collect();
+    assert_eq!(path, vec!["root".to_string(), closet, toolbox, wrench]);
+}
+
+#[tokio::test]
+async fn move_node_into_itself_is_rejected() {
+    let (inv, _temp) = open_inventory().await;
+    let box_node = create_named(&inv, "root", "Box").await;
+
+    let err = inv.move_node(&box_node, &box_node).await.unwrap_err();
+    assert!(
+        matches!(err, visible_core::CoreError::Internal(_)),
+        "{err:?}"
+    );
+
+    // The node is untouched — still a child of root.
+    let unchanged = inv.get(&box_node).await.unwrap().unwrap();
+    assert_eq!(unchanged.parent_id.as_deref(), Some("root"));
+}
+
+#[tokio::test]
+async fn move_node_into_a_descendant_is_rejected() {
+    let (inv, _temp) = open_inventory().await;
+
+    // Home -> Garage -> Toolbox -> Drawer. Moving the garage under the drawer
+    // (its own grandchild) would detach the branch, so it must be refused.
+    let garage = create_named(&inv, "root", "Garage").await;
+    let toolbox = create_named(&inv, &garage, "Toolbox").await;
+    let drawer = create_named(&inv, &toolbox, "Drawer").await;
+
+    let err = inv.move_node(&garage, &drawer).await.unwrap_err();
+    assert!(
+        matches!(err, visible_core::CoreError::Internal(_)),
+        "{err:?}"
+    );
+
+    // The whole branch is intact: the garage still hangs off root and the drawer
+    // still hangs off the toolbox.
+    assert_eq!(
+        inv.get(&garage)
+            .await
+            .unwrap()
+            .unwrap()
+            .parent_id
+            .as_deref(),
+        Some("root")
+    );
+    assert_eq!(
+        inv.get(&drawer)
+            .await
+            .unwrap()
+            .unwrap()
+            .parent_id
+            .as_deref(),
+        Some(toolbox.as_str())
+    );
+}
+
+#[tokio::test]
+async fn move_root_is_rejected_and_leaves_the_tree_intact() {
+    let (inv, _temp) = open_inventory().await;
+    let room = create_named(&inv, "root", "Room").await;
+
+    let err = inv.move_node("root", &room).await.unwrap_err();
+    assert!(
+        matches!(err, visible_core::CoreError::Internal(_)),
+        "{err:?}"
+    );
+
+    // The root still has no parent; the room is still its child.
+    assert_eq!(inv.root().await.unwrap().parent_id, None);
+    assert_eq!(
+        inv.get(&room).await.unwrap().unwrap().parent_id.as_deref(),
+        Some("root")
+    );
+}
+
+#[tokio::test]
+async fn move_node_with_a_missing_node_or_parent_is_not_found() {
+    let (inv, _temp) = open_inventory().await;
+    let room = create_named(&inv, "root", "Room").await;
+
+    // Missing moving node.
+    let err = inv.move_node("nope", &room).await.unwrap_err();
+    assert!(
+        matches!(err, visible_core::CoreError::NotFound(_)),
+        "{err:?}"
+    );
+
+    // Missing destination parent.
+    let err = inv.move_node(&room, "nope").await.unwrap_err();
+    assert!(
+        matches!(err, visible_core::CoreError::NotFound(_)),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn move_node_to_its_existing_parent_is_a_no_op() {
+    let (inv, _temp) = open_inventory().await;
+
+    // Two children of root; the first is already at position 0.
+    let first = create_named(&inv, "root", "First").await;
+    create_named(&inv, "root", "Second").await;
+    assert_eq!(inv.get(&first).await.unwrap().unwrap().position, 0);
+
+    // Moving it under the parent it already has changes nothing — position is not
+    // churned to the end.
+    inv.move_node(&first, "root").await.unwrap();
+    let after = inv.get(&first).await.unwrap().unwrap();
+    assert_eq!(after.parent_id.as_deref(), Some("root"));
+    assert_eq!(after.position, 0);
+}
+
+#[tokio::test]
 async fn search_returns_the_match_with_its_breadcrumb_and_ancestor_label() {
     let (inv, _temp) = open_inventory().await;
 
