@@ -40,6 +40,9 @@ final class AppSession {
 
         let next = await Task.detached {
             do {
+                // Install the keyring before anything reads it — cloud sync stores
+                // the identity keypair and the per-library encryption key there.
+                initKeyring()
                 let library = try discoverLibraries(dataDir: dataDir).first
                     ?? createLibrary(dataDir: dataDir)
                 let handle = try initApp(dataDir: dataDir, libraryId: library.id)

@@ -12,6 +12,9 @@ private let logger = Logger.visible("BrowseView")
 struct BrowseView: View {
     let onOpenChild: (String) -> Void
     let onPop: () -> Void
+    // Open the sync settings screen. Only the root house passes this, so the gear
+    // shows there and nowhere deeper; nil leaves the gear off.
+    let onOpenSettings: (() -> Void)?
 
     @State private var model: BrowseModel
     // Which capture site opened the camera, routing the captured photo to the
@@ -23,10 +26,12 @@ struct BrowseView: View {
         handle: AppHandle,
         nodeId: String,
         onOpenChild: @escaping (String) -> Void,
-        onPop: @escaping () -> Void
+        onPop: @escaping () -> Void,
+        onOpenSettings: (() -> Void)? = nil
     ) {
         self.onOpenChild = onOpenChild
         self.onPop = onPop
+        self.onOpenSettings = onOpenSettings
         _model = State(initialValue: BrowseModel(handle: handle, nodeId: nodeId))
     }
 
@@ -57,6 +62,14 @@ struct BrowseView: View {
                             openCamera(.newChild)
                         } label: {
                             Image(systemName: "plus")
+                        }
+                    }
+                    // The sync gear lives on the root house only.
+                    if let onOpenSettings {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: onOpenSettings) {
+                                Image(systemName: "gearshape")
+                            }
                         }
                     }
                 }

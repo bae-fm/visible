@@ -41,6 +41,7 @@ private struct BrowseNavigation: View {
     let rootId: String
 
     @State private var path: [String] = []
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -48,7 +49,8 @@ private struct BrowseNavigation: View {
                 handle: handle,
                 nodeId: rootId,
                 onOpenChild: { path.append($0) },
-                onPop: {}
+                onPop: {},
+                onOpenSettings: { showSettings = true }
             )
             .navigationDestination(for: String.self) { nodeId in
                 BrowseView(
@@ -57,6 +59,9 @@ private struct BrowseNavigation: View {
                     onOpenChild: { path.append($0) },
                     onPop: { if !path.isEmpty { path.removeLast() } }
                 )
+            }
+            .navigationDestination(isPresented: $showSettings) {
+                SettingsView(handle: handle)
             }
         }
         .tint(Theme.accent)
