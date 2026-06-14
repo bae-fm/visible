@@ -23,14 +23,15 @@ extension View {
         #endif
     }
 
-    /// Presents the platform's image import while `isPresented` is true, feeding
-    /// the chosen image's bytes to `onPicked` (or `onCancel` on dismissal/failure)
-    /// and clearing the binding. iOS presents `PhotoLibraryPicker` (PHPicker) in a
-    /// sheet; macOS, whose `NSOpenPanel` is application-modal, runs the panel
-    /// directly when the binding flips true — the sanctioned platform-mechanism
-    /// difference for the same "pick an image" intent. The closures are
-    /// `@MainActor @Sendable` so the iOS picker's background load callback can hop
-    /// the result back to the main actor.
+    /// Presents the platform's image import, feeding the chosen image's bytes to
+    /// `onPicked` (or `onCancel` on dismissal/failure). iOS presents
+    /// `PhotoLibraryPicker` (PHPicker) in a sheet driven by `isPresented`; macOS,
+    /// whose `NSOpenPanel` is application-modal, runs the panel directly from the
+    /// button action via `runImagePanel` and ignores `isPresented` (a modal panel
+    /// needs no sheet to host it) — the sanctioned platform-mechanism difference
+    /// for the same "pick an image" intent. The closures are `@MainActor
+    /// @Sendable` so the iOS picker's background load callback can hop the result
+    /// back to the main actor.
     func photoLibraryImport(
         isPresented: Binding<Bool>,
         onPicked: @escaping @MainActor @Sendable (Data) -> Void,
@@ -42,13 +43,9 @@ extension View {
                 .ignoresSafeArea()
         }
         #else
-        // The panel is modal, so there's no sheet to present; react to the flag
-        // by running it once, then clear the flag.
-        return onChange(of: isPresented.wrappedValue) { _, presenting in
-            guard presenting else { return }
-            isPresented.wrappedValue = false
-            runImagePanel(onPicked: onPicked, onCancel: onCancel)
-        }
+        // macOS runs the modal panel from its button action (see the call site),
+        // so this modifier adds nothing on the Mac.
+        return self
         #endif
     }
 

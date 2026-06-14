@@ -147,7 +147,7 @@ struct BrowseView: View {
                 if CameraView.isAvailable {
                     Button("Take Photo") { cameraIntent = .nodePhoto }
                 }
-                Button("Choose from Library") { importingPhoto = true }
+                Button("Choose from Library") { chooseFromLibrary() }
             }
             .photoLibraryImport(
                 isPresented: $importingPhoto,
@@ -158,6 +158,22 @@ struct BrowseView: View {
                 onCancel: { importingPhoto = false }
             )
             .fullScreenImageCover(path: $viewingPhotoPath)
+    }
+
+    /// Open the platform's image import for this node's photo. iOS presents the
+    /// PHPicker sheet (the `photoLibraryImport` modifier reacts to the flag);
+    /// macOS runs its application-modal `NSOpenPanel` directly, since a modal
+    /// panel needs no sheet to host it. Both feed the chosen bytes to
+    /// `setImage`.
+    private func chooseFromLibrary() {
+        #if os(iOS)
+        importingPhoto = true
+        #else
+        runImagePanel(
+            onPicked: { bytes in model.setImage(bytes) },
+            onCancel: {}
+        )
+        #endif
     }
 
     private var title: String {
