@@ -77,6 +77,16 @@ impl AppHandle {
         Ok(self.app.runtime.block_on(self.app.inventory.delete(&id))?)
     }
 
+    /// Move `id` (with its whole subtree) under `new_parent_id`. Core rejects a
+    /// move into the node's own subtree, a move of the root, and a missing node
+    /// or parent; a move to the parent the node already has is a no-op.
+    pub fn move_node(&self, id: String, new_parent_id: String) -> Result<(), BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.inventory.move_node(&id, &new_parent_id))?)
+    }
+
     pub fn set_node_image(&self, id: String, bytes: Vec<u8>) -> Result<(), BridgeError> {
         Ok(self
             .app
