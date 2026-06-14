@@ -264,6 +264,16 @@ impl From<CoreError> for BridgeError {
 mod tests {
     use super::*;
 
+    #[test]
+    fn library_info_passes_id_and_name_through() {
+        let bridge = BridgeLibrary::from(LibraryInfo {
+            id: "lib-1".into(),
+            name: "Home".into(),
+        });
+        assert_eq!(bridge.id, "lib-1");
+        assert_eq!(bridge.name, "Home");
+    }
+
     /// A node with every field set, so a conversion test can assert each one
     /// passes through. `quantity` drives `quantity_badge`, so each test that
     /// cares overrides it.
