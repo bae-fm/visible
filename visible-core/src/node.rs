@@ -799,8 +799,9 @@ impl Inventory {
     /// unlink the local file and enqueue the cloud blob for deletion. Both steps
     /// are best-effort (see the two callees) — the row is already deleted, so a
     /// leftover file or cloud blob is leakage, not a fault. Called from the
-    /// `delete` subtree cleanup and the `set_image` replace path, keeping the
-    /// local-unlink and cloud-delete intent together.
+    /// `delete` subtree cleanup, the `set_image` replace path, and the
+    /// `clear_image` removal path, keeping the local-unlink and cloud-delete
+    /// intent together.
     async fn remove_image_blob(&self, image_id: &str) {
         self.remove_image_file(image_id);
         self.enqueue_image_delete(image_id).await;
