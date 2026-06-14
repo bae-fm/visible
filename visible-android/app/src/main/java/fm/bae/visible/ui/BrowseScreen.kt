@@ -70,7 +70,9 @@ fun BrowseScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = (content as? BrowseContent.Loaded)?.node?.name ?: "",
+                        // Empty while loading/failed (no node to title yet); the
+                        // loaded node shows its title, or "Untitled" if it has none.
+                        text = (content as? BrowseContent.Loaded)?.node?.displayName ?: "",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -124,12 +126,13 @@ fun BrowseScreen(
         null -> {}
         is BrowseDialog.Rename -> NameDialog(
             title = "Rename",
-            initial = dialog.target.name,
+            // Seed the editable field with the current title, or blank if untitled.
+            initial = dialog.target.name ?: "",
             onConfirm = { name -> viewModel.rename(dialog.target.id, name) },
             onDismiss = viewModel::dismissDialog,
         )
         is BrowseDialog.ConfirmDelete -> ConfirmDeleteDialog(
-            name = dialog.target.name,
+            name = dialog.target.displayName,
             onConfirm = { viewModel.delete(dialog.target.id) },
             onDismiss = viewModel::dismissDialog,
         )

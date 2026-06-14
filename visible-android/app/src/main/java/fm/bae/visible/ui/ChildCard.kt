@@ -49,7 +49,7 @@ fun ChildCard(
                     modifier = Modifier.fillMaxWidth().aspectRatio(1f),
                 )
                 Text(
-                    text = child.name,
+                    text = child.displayName,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

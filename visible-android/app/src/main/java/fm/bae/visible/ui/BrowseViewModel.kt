@@ -88,14 +88,14 @@ class BrowseViewModel(
     }
 
     /**
-     * Create a new child under this node carrying [bytes] as its photo and an
-     * empty name — the photo is the thing's identity until it is titled (by
-     * rename, or later by on-device vision). The node and its image are written
-     * in one atomic core call, so the child never appears without its photo.
+     * Create a new child under this node carrying [bytes] as its photo. The
+     * child starts untitled (name = null) — the photo is the thing's identity
+     * until it is renamed. The node and its image are written in one atomic core
+     * call, so the child never appears without its photo.
      */
     fun addChildWithPhoto(bytes: ByteArray) {
         mutate("creating child of $nodeId with photo") {
-            handle.createNodeWithImage(nodeId, "", bytes)
+            handle.createNodeWithImage(nodeId, bytes)
         }
     }
 

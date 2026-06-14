@@ -79,7 +79,9 @@ struct BrowseView: View {
     }
 
     private var title: String {
-        if case let .loaded(node, _) = model.content { node.name } else { "" }
+        // Empty while loading/failed (no node to title yet); the loaded node
+        // shows its title, or "Untitled" if it has none.
+        if case let .loaded(node, _) = model.content { node.displayName } else { "" }
     }
 
     /// Presents the camera for `intent`, or logs and does nothing when no camera
@@ -158,13 +160,14 @@ struct BrowseView: View {
         case let .rename(target):
             NameSheet(
                 title: "Rename",
-                initial: target.name,
+                // Seed the editable field with the current title, or blank if untitled.
+                initial: target.name ?? "",
                 onConfirm: { name in model.rename(id: target.id, name: name) },
                 onCancel: { model.dismissDialog() }
             )
         case let .confirmDelete(target):
             DeleteConfirmSheet(
-                name: target.name,
+                name: target.displayName,
                 onConfirm: { model.delete(id: target.id) },
                 onCancel: { model.dismissDialog() }
             )

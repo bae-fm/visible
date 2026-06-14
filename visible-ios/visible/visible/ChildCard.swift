@@ -15,7 +15,7 @@ struct ChildCard: View {
                 NodeImageView(path: path)
                     .aspectRatio(1, contentMode: .fit)
                     .frame(maxWidth: .infinity)
-                Text(child.name)
+                Text(child.displayName)
                     .font(.body)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
