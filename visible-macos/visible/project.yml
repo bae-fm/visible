@@ -45,6 +45,9 @@ targets:
       - path: ../../visible-ios/visible/visible/Theme.swift
       - path: ../../visible-ios/visible/visible/Logger.swift
       - path: ../../visible-ios/visible/visible/CameraView.swift
+      - path: ../../visible-ios/visible/visible/PhotoLibraryPicker.swift
+      - path: ../../visible-ios/visible/visible/FullScreenImageView.swift
+      - path: ../../visible-ios/visible/visible/RemovePhotoConfirmSheet.swift
       - path: ../../visible-ios/visible/visible/View+PlatformChrome.swift
     preBuildScripts:
       - name: Build Rust Bridge

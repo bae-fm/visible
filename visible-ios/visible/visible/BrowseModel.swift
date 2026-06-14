@@ -15,11 +15,13 @@ enum BrowseContent {
 enum BrowseDialog: Identifiable {
     case rename(target: BridgeNode)
     case confirmDelete(target: BridgeNode)
+    case confirmRemovePhoto
 
     var id: String {
         switch self {
         case let .rename(target): "rename-\(target.id)"
         case let .confirmDelete(target): "confirmDelete-\(target.id)"
+        case .confirmRemovePhoto: "confirmRemovePhoto"
         }
     }
 }
@@ -81,6 +83,10 @@ final class BrowseModel {
         dialog = .confirmDelete(target: node)
     }
 
+    func openRemovePhoto() {
+        dialog = .confirmRemovePhoto
+    }
+
     func dismissDialog() {
         dialog = nil
     }
@@ -123,6 +129,11 @@ final class BrowseModel {
 
     func setImage(_ bytes: Data) {
         mutate("setting image on \(nodeId)") { try $0.setNodeImage(id: self.nodeId, bytes: bytes) }
+    }
+
+    func removePhoto() {
+        dialog = nil
+        mutate("clearing image on \(nodeId)") { try $0.clearNodeImage(id: self.nodeId) }
     }
 
     /// The local file path for `imageId` if its file exists, else nil; the image

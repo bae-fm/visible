@@ -28,6 +28,15 @@ struct BrowseView: View {
     // right model method: the header replaces this node's photo, the + adds a
     // new child carrying the photo. nil while the camera is closed.
     @State private var cameraIntent: CameraIntent?
+    // Presents the Take Photo / Choose from Library action sheet for setting this
+    // node's photo (from a placeholder-header tap or the Change Photo menu item).
+    @State private var choosingPhotoSource = false
+    // Presents the photo-library picker over this view; both Choose from Library
+    // and the resulting import feed this node's photo through `setNodeImage`.
+    @State private var importingPhoto = false
+    // The on-disk path of the node photo shown full-screen, or nil while no
+    // viewer is open. Set by tapping the header when a photo is present.
+    @State private var viewingPhotoPath: String?
     // The node whose move-destination picker is open, presented over this view;
     // nil while no picker is shown. Holds the node id (an Identifiable wrapper so
     // it drives `.sheet(item:)`) because the picker moves a specific node.
@@ -65,6 +74,9 @@ struct BrowseView: View {
                         Menu {
                             NodeActionsMenu(
                                 onEdit: { onOpenDetail(node.id) },
+                                onChangePhoto: { choosingPhotoSource = true },
+                                onRemovePhoto: { model.openRemovePhoto() },
+                                hasImage: node.imageId != nil,
                                 onRename: { model.openRename(node) },
                                 onMove: { movingNode = MovingNode(id: node.id) },
                                 onDelete: { model.openDelete(node) },
@@ -125,6 +137,27 @@ struct BrowseView: View {
                     }
                 )
             }
+            .confirmationDialog(
+                "Photo",
+                isPresented: $choosingPhotoSource,
+                titleVisibility: .hidden
+            ) {
+                // Take Photo is only offered where a camera exists; Choose from
+                // Library is always available. Both feed this node's photo.
+                if CameraView.isAvailable {
+                    Button("Take Photo") { cameraIntent = .nodePhoto }
+                }
+                Button("Choose from Library") { importingPhoto = true }
+            }
+            .photoLibraryImport(
+                isPresented: $importingPhoto,
+                onPicked: { bytes in
+                    importingPhoto = false
+                    model.setImage(bytes)
+                },
+                onCancel: { importingPhoto = false }
+            )
+            .fullScreenImageCover(path: $viewingPhotoPath)
     }
 
     private var title: String {
@@ -178,11 +211,20 @@ struct BrowseView: View {
             LazyVGrid(columns: columns, spacing: 16) {
                 // The photo header is the first scrolling item, spanning both
                 // columns — it scrolls with the grid rather than pinning.
-                NodeImageView(path: node.imageId.flatMap(model.imagePath), cornerRadius: 16)
+                let headerPath = node.imageId.flatMap(model.imagePath)
+                NodeImageView(path: headerPath, cornerRadius: 16)
                     .aspectRatio(1, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .gridCellColumns(2)
-                    .onTapGesture { openCamera(.nodePhoto) }
+                    .onTapGesture {
+                        // A set photo opens full-screen; a placeholder offers the
+                        // Take/Choose source sheet.
+                        if let headerPath {
+                            viewingPhotoPath = headerPath
+                        } else {
+                            choosingPhotoSource = true
+                        }
+                    }
 
                 if children.isEmpty {
                     Text("Nothing here yet — add the first thing.")
@@ -223,6 +265,11 @@ struct BrowseView: View {
             DeleteConfirmSheet(
                 name: target.name,
                 onConfirm: { model.delete(id: target.id) },
+                onCancel: { model.dismissDialog() }
+            )
+        case .confirmRemovePhoto:
+            RemovePhotoConfirmSheet(
+                onConfirm: { model.removePhoto() },
                 onCancel: { model.dismissDialog() }
             )
         }
