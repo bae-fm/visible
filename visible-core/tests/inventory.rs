@@ -436,6 +436,23 @@ async fn search_with_an_empty_or_whitespace_query_returns_nothing() {
     assert!(inv.search("\t\n").await.unwrap().is_empty());
 }
 
+#[tokio::test]
+async fn search_treats_like_wildcards_as_literal_characters() {
+    let (inv, _temp) = open_inventory().await;
+
+    // `%` and `_` are LIKE wildcards; a typed one must match the literal
+    // character, not glob. "100%" must match "100% cotton" but not "100 cotton",
+    // and "_" must match nothing (no name contains a literal underscore).
+    let percent = create_named(&inv, "root", "100% cotton").await;
+    create_named(&inv, "root", "100 cotton").await;
+
+    let hits = inv.search("100%").await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].node.id, percent);
+
+    assert!(inv.search("_").await.unwrap().is_empty());
+}
+
 /// Whether a `node_images` row exists for `image_id`. Images push to peers as
 /// `node_images` INSERTs over coven's changeset channel (see
 /// [`visible_core::blob_plan`]), so the presence of this row is what coven's blob

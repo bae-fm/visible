@@ -191,27 +191,37 @@ impl Inventory {
     /// each with its breadcrumb. The root house is excluded — you are always "in"
     /// it, so search finds its contents, not the house itself — and untitled
     /// nodes (`name` NULL) never match a text query. An empty or whitespace-only
-    /// query has nothing to match, so returns no results. Results are ordered by
-    /// name case-insensitively, so they read in natural alphabetical order
-    /// regardless of capitalization (matching the case-insensitive match). Each
-    /// match's breadcrumb is walked on the same connection as the match query, so
-    /// the whole search is one connection call (no per-match round trip).
+    /// query has nothing to match, so returns no results. The match is a literal
+    /// substring: LIKE's own `%` and `_` wildcards are escaped so a query like
+    /// `100%` matches the text "100%", not "anything starting with 100". The
+    /// match is case-insensitive (LIKE folds ASCII case); results are then ordered
+    /// by name under `NOCASE` so they read in natural alphabetical order
+    /// regardless of capitalization. Each match's breadcrumb is walked on the same
+    /// connection as the match query, so the whole search is one connection call
+    /// (no per-match round trip).
     pub async fn search(&self, query: &str) -> Result<Vec<SearchHit>, CoreError> {
         let query = query.trim();
         if query.is_empty() {
             return Ok(vec![]);
         }
-        let query = query.to_string();
+        // The query is a literal substring, so escape LIKE's wildcards (`%`, `_`)
+        // and the escape char itself, then wrap in `%…%`. Declared with `ESCAPE
+        // '\'` below so a typed `%` or `_` matches that character, not a glob.
+        let escaped = query
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
         self.db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&format!(
                     "SELECT {NODE_COLUMNS} FROM nodes \
                      WHERE parent_id IS NOT NULL \
-                       AND name LIKE '%' || ?1 || '%' COLLATE NOCASE \
+                       AND name LIKE ?1 ESCAPE '\\' \
                      ORDER BY name COLLATE NOCASE"
                 ))?;
                 let matches = stmt
-                    .query_map([&query], Node::from_row)?
+                    .query_map([&pattern], Node::from_row)?
                     .collect::<coven::rusqlite::Result<Vec<_>>>()?;
                 let hits = matches
                     .into_iter()
