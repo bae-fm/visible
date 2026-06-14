@@ -93,14 +93,21 @@ impl Sync {
     /// time, not via a delayed reconnect banner), then save the credentials and
     /// the cloud-home config and bring the sync loop up.
     pub async fn save_s3_config(&self, data: S3ConfigData) -> Result<(), CoreError> {
+        // Normalize the optional fields once, at the input boundary: a blank form
+        // box is the absence of an endpoint/prefix, so it becomes None before it
+        // reaches either the probe or the persisted config. Both then see the same
+        // shape, and Some("") never travels downstream.
+        let endpoint = data.endpoint.filter(|s| !s.is_empty());
+        let key_prefix = data.key_prefix.filter(|s| !s.is_empty());
+
         // Probe first — build a throwaway client just to verify reachability.
         let probe_home = S3CloudHome::new(
             data.bucket.clone(),
             data.region.clone(),
-            data.endpoint.clone(),
+            endpoint.clone(),
             data.access_key.clone(),
             data.secret_key.clone(),
-            data.key_prefix.clone(),
+            key_prefix.clone(),
         )
         .await?;
         probe_home.probe().await?;
@@ -111,15 +118,14 @@ impl Sync {
                 secret_key: data.secret_key,
             })?;
 
-        // Connecting fills the whole cloud home as a unit. Empty optional fields
-        // normalize to None so a blank form box isn't persisted as Some("").
+        // Connecting fills the whole cloud home as a unit.
         {
             let mut config = self.config.write().unwrap();
             config.cloud_home.provider = Some(CloudProvider::S3);
             config.cloud_home.s3_bucket = Some(data.bucket);
             config.cloud_home.s3_region = Some(data.region);
-            config.cloud_home.s3_endpoint = data.endpoint.filter(|s| !s.is_empty());
-            config.cloud_home.s3_key_prefix = data.key_prefix.filter(|s| !s.is_empty());
+            config.cloud_home.s3_endpoint = endpoint;
+            config.cloud_home.s3_key_prefix = key_prefix;
             config.save()?;
         }
 
@@ -158,6 +164,19 @@ impl Sync {
     pub async fn attach_and_start(&self, encryption: EncryptionService) {
         let manager = Arc::new(self.build_manager(encryption));
         manager.start_sync().await;
+        // start_sync silently bails when the cloud home is unreachable or sync
+        // init returns None. The manager is kept either way so a later trigger or
+        // reconnect can recover, but a launch resume that didn't bring the loop up
+        // is worth surfacing — the configured library will look idle until the
+        // cloud is reachable again (parity with ensure_manager_and_start).
+        if !manager.is_sync_ready() {
+            let config = self.config.read().unwrap();
+            warn!(
+                provider = ?config.cloud_home.provider,
+                s3_bucket = ?config.cloud_home.s3_bucket,
+                "sync loop did not start on launch resume; will retry on the next trigger or reconnect"
+            );
+        }
         *self.manager.write().unwrap() = Some(manager.clone());
         manager.trigger_sync();
     }
@@ -248,8 +267,9 @@ impl Sync {
         }
     }
 
-    /// Whether the background sync loop is running (no manager → false).
-    pub fn is_sync_ready(&self) -> bool {
+    /// Whether the background sync loop is running (no manager → false). Internal:
+    /// the public status surface is [`Self::sync_status`].
+    fn is_sync_ready(&self) -> bool {
         self.manager
             .read()
             .unwrap()
