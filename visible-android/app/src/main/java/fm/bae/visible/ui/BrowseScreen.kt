@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -46,6 +47,9 @@ fun BrowseScreen(
     canPop: Boolean,
     onPop: () -> Unit,
     onOpenChild: (String) -> Unit,
+    // Open the sync settings screen. Only the root house passes this, so the gear
+    // shows there and nowhere deeper; null leaves the gear off.
+    onOpenSettings: (() -> Unit)? = null,
 ) {
     val content = viewModel.content
     // Two capture sites: the photo header replaces this node's photo; the + adds
@@ -91,6 +95,12 @@ fun BrowseScreen(
                             onRename = { viewModel.openRename(loaded.node) },
                             onDelete = { viewModel.openDelete(loaded.node) },
                         )
+                        // The sync gear lives on the root house only.
+                        if (onOpenSettings != null) {
+                            IconButton(onClick = onOpenSettings) {
+                                Icon(Icons.Filled.Settings, contentDescription = "Sync settings")
+                            }
+                        }
                     }
                 },
             )

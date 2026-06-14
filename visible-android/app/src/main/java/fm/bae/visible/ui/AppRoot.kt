@@ -33,6 +33,7 @@ import uniffi.visible_bridge.AppHandle
 
 private const val ARG_NODE_ID = "nodeId"
 private const val ROUTE_BROWSE = "browse/{$ARG_NODE_ID}"
+private const val ROUTE_SETTINGS = "settings"
 
 private fun browseRoute(nodeId: String) = "browse/$nodeId"
 
@@ -86,11 +87,29 @@ private fun BrowseNavigation(handle: AppHandle, rootId: String) {
                     }
                 },
             )
+            val nodeId = entry.arguments?.getString(ARG_NODE_ID)
             BrowseScreen(
                 viewModel = viewModel,
                 canPop = navController.previousBackStackEntry != null,
                 onPop = { navController.popBackStack() },
                 onOpenChild = { childId -> navController.navigate(browseRoute(childId)) },
+                // The sync gear lives on the root house only.
+                onOpenSettings = if (nodeId == rootId) {
+                    { navController.navigate(ROUTE_SETTINGS) }
+                } else {
+                    null
+                },
+            )
+        }
+        composable(route = ROUTE_SETTINGS) {
+            val viewModel: SettingsViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { SettingsViewModel(handle) }
+                },
+            )
+            SettingsScreen(
+                viewModel = viewModel,
+                onPop = { navController.popBackStack() },
             )
         }
     }
