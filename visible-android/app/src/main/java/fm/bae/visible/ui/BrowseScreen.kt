@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +48,9 @@ fun BrowseScreen(
     canPop: Boolean,
     onPop: () -> Unit,
     onOpenChild: (String) -> Unit,
+    // Open the search screen. Search spans the whole tree, so every level offers
+    // it (unlike the root-only settings gear).
+    onOpenSearch: () -> Unit,
     // Open the sync settings screen. Only the root house passes this, so the gear
     // shows there and nowhere deeper; null leaves the gear off.
     onOpenSettings: (() -> Unit)? = null,
@@ -90,6 +94,9 @@ fun BrowseScreen(
                 },
                 actions = {
                     (content as? BrowseContent.Loaded)?.let { loaded ->
+                        IconButton(onClick = onOpenSearch) {
+                            Icon(Icons.Filled.Search, contentDescription = "Search")
+                        }
                         NodeOverflowMenu(
                             node = loaded.node,
                             onRename = { viewModel.openRename(loaded.node) },

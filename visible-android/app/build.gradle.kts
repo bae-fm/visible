@@ -14,6 +14,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -56,4 +57,12 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.15.0@aar")
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // Instrumented navigation test: TestNavHostController drives the real
+    // browse/search graph to prove tapping a search result lands a back stack
+    // that walks up the matched node's real ancestors.
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.navigation:navigation-testing:2.8.5")
 }

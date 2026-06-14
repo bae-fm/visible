@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -31,13 +32,35 @@ import fm.bae.visible.AppSession
 import fm.bae.visible.SessionState
 import kotlinx.coroutines.launch
 import uniffi.visible_bridge.AppHandle
+import uniffi.visible_bridge.BridgeNode
 
 private const val ARG_NODE_ID = "nodeId"
 private const val ROUTE_BROWSE = "browse/{$ARG_NODE_ID}"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_SHARING = "sharing"
+private const val ROUTE_SEARCH = "search"
 
 private fun browseRoute(nodeId: String) = "browse/$nodeId"
+
+/**
+ * Land the browse stack on a searched node so the node's back button walks up its
+ * real ancestors. The [NavController] appends one route at a time, so the stack
+ * is synthesized: pop everything (the search screen and any descended browse
+ * entries) back to the root, then push one browse entry per ancestor below the
+ * root in order. [breadcrumb] is root→node inclusive, so the root is dropped and
+ * the rest replayed, ending on the matched node. Internal so the navigation test
+ * exercises the real replay rather than a copy.
+ */
+internal fun navigateToBreadcrumb(
+    navController: NavController,
+    rootId: String,
+    breadcrumb: List<BridgeNode>,
+) {
+    navController.popBackStack(browseRoute(rootId), inclusive = false)
+    breadcrumb.drop(1).forEach { node ->
+        navController.navigate(browseRoute(node.id))
+    }
+}
 
 /**
  * Opens the session, then hosts the browse navigation stack once it is open.
@@ -105,11 +128,26 @@ private fun BrowseNavigation(session: AppSession, handle: AppHandle, rootId: Str
                     canPop = navController.previousBackStackEntry != null,
                     onPop = { navController.popBackStack() },
                     onOpenChild = { childId -> navController.navigate(browseRoute(childId)) },
+                    onOpenSearch = { navController.navigate(ROUTE_SEARCH) },
                     // The sync gear lives on the root house only.
                     onOpenSettings = if (nodeId == rootId) {
                         { navController.navigate(ROUTE_SETTINGS) }
                     } else {
                         null
+                    },
+                )
+            }
+            composable(route = ROUTE_SEARCH) {
+                val viewModel: SearchViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer { SearchViewModel(handle) }
+                    },
+                )
+                SearchScreen(
+                    viewModel = viewModel,
+                    onPop = { navController.popBackStack() },
+                    onNavigate = { breadcrumb ->
+                        navigateToBreadcrumb(navController, rootId, breadcrumb)
                     },
                 )
             }
