@@ -28,20 +28,25 @@ pub struct RunningApp {
     pub sync: Arc<Sync>,
 }
 
-/// The host synced tables every visible library carries: the node tree and the
+/// The host synced tables every visible library carries: the node tree, the
 /// immutable image-blob rows (`node_images` carries the image blobs, see
-/// [`crate::blob_plan`]). The single source for both opening a library
+/// [`crate::blob_plan`]), and the per-node tags (`node_tags`, a plain synced
+/// table with no blob). The single source for both opening a library
 /// ([`open_database`]) and joining/restoring one ([`crate::share`]), so the
 /// schema contract can't drift between the two. coven injects its own `item_keys`.
 pub(crate) fn synced_tables() -> Vec<SyncedTable> {
-    vec![SyncedTable::new("nodes"), SyncedTable::new("node_images")]
+    vec![
+        SyncedTable::new("nodes"),
+        SyncedTable::new("node_images"),
+        SyncedTable::new("node_tags"),
+    ]
 }
 
 /// Open the coven database for one library and run the schema. coven owns the
 /// connection: [`Database::open`] runs its bookkeeping migration, then the schema
-/// ([`SCHEMA`] creates `nodes` and `node_images`), seeds the `_updated_at`
-/// register off the rows on disk, and hands back the non-optional stamper every
-/// node write binds.
+/// ([`SCHEMA`] creates `nodes`, `node_images`, and `node_tags`), seeds the
+/// `_updated_at` register off the rows on disk, and hands back the non-optional
+/// stamper every node write binds.
 pub fn open_database(
     library_dir: &LibraryDir,
     device_id: String,

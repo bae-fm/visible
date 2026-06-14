@@ -487,6 +487,21 @@ async fn node_image_ids_for(db: &Database, node_id: &str) -> Vec<String> {
     .unwrap()
 }
 
+/// The tags of `node_id` read straight from `node_tags`, ordered, so a cascade
+/// test can assert the rows are gone independently of the `tags` query path.
+async fn node_tags_for(db: &Database, node_id: &str) -> Vec<String> {
+    let node_id = node_id.to_string();
+    db.call(move |conn| {
+        let mut stmt = conn.prepare("SELECT tag FROM node_tags WHERE node_id = ?1 ORDER BY tag")?;
+        let tags = stmt
+            .query_map([node_id], |r| r.get::<_, String>(0))?
+            .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+        Ok(tags)
+    })
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn create_child_with_image_records_a_node_image_row_and_no_outbox_upload() {
     let (inv, db, _temp) = open_inventory_with_db().await;
@@ -540,6 +555,262 @@ async fn set_image_replaces_the_node_image_row_and_enqueues_the_old_delete() {
         delete_keys,
         vec![visible_core::node::image_cloud_key(&first_image)]
     );
+}
+
+#[tokio::test]
+async fn set_attributes_round_trips_every_field() {
+    let (inv, _temp) = open_inventory().await;
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+
+    // A fresh node carries no attributes.
+    let fresh = inv.get(&node.id).await.unwrap().unwrap();
+    assert_eq!(fresh.quantity, None);
+    assert_eq!(fresh.notes, None);
+    assert_eq!(fresh.value_cents, None);
+    assert_eq!(fresh.acquired_at, None);
+    assert_eq!(fresh.serial, None);
+    assert_eq!(fresh.barcode, None);
+
+    inv.set_attributes(
+        &node.id,
+        Some(3),
+        Some("Two left handed".into()),
+        Some(4999),
+        Some("2024-03-15".into()),
+        Some("SN-12345".into()),
+        Some("0123456789012".into()),
+    )
+    .await
+    .unwrap();
+
+    let loaded = inv.get(&node.id).await.unwrap().unwrap();
+    assert_eq!(loaded.quantity, Some(3));
+    assert_eq!(loaded.notes.as_deref(), Some("Two left handed"));
+    assert_eq!(loaded.value_cents, Some(4999));
+    assert_eq!(loaded.acquired_at.as_deref(), Some("2024-03-15"));
+    assert_eq!(loaded.serial.as_deref(), Some("SN-12345"));
+    assert_eq!(loaded.barcode.as_deref(), Some("0123456789012"));
+}
+
+#[tokio::test]
+async fn set_attributes_clears_with_none_and_normalizes_blank_strings_to_none() {
+    let (inv, _temp) = open_inventory().await;
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+
+    // Set everything, then clear it: None for the numbers, blank/whitespace for
+    // the text fields — a cleared text box is absence, stored as NULL not "".
+    inv.set_attributes(
+        &node.id,
+        Some(2),
+        Some("notes".into()),
+        Some(100),
+        Some("2024-01-01".into()),
+        Some("serial".into()),
+        Some("barcode".into()),
+    )
+    .await
+    .unwrap();
+
+    inv.set_attributes(
+        &node.id,
+        None,
+        Some("".into()),
+        None,
+        Some("   ".into()),
+        Some("\t\n".into()),
+        None,
+    )
+    .await
+    .unwrap();
+
+    let cleared = inv.get(&node.id).await.unwrap().unwrap();
+    assert_eq!(cleared.quantity, None);
+    assert_eq!(cleared.notes, None, "blank notes normalize to NULL");
+    assert_eq!(cleared.value_cents, None);
+    assert_eq!(
+        cleared.acquired_at, None,
+        "whitespace date normalizes to NULL"
+    );
+    assert_eq!(cleared.serial, None, "whitespace serial normalizes to NULL");
+    assert_eq!(cleared.barcode, None);
+}
+
+#[tokio::test]
+async fn set_attributes_trims_present_text_values() {
+    let (inv, _temp) = open_inventory().await;
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+
+    inv.set_attributes(
+        &node.id,
+        None,
+        Some("  spaced notes  ".into()),
+        None,
+        None,
+        Some("  SN-1  ".into()),
+        None,
+    )
+    .await
+    .unwrap();
+
+    let loaded = inv.get(&node.id).await.unwrap().unwrap();
+    assert_eq!(loaded.notes.as_deref(), Some("spaced notes"));
+    assert_eq!(loaded.serial.as_deref(), Some("SN-1"));
+}
+
+#[tokio::test]
+async fn set_attributes_on_missing_node_is_not_found() {
+    let (inv, _temp) = open_inventory().await;
+    let err = inv
+        .set_attributes("nope", Some(1), None, None, None, None, None)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, visible_core::CoreError::NotFound(_)),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn add_tag_is_idempotent_and_trimmed() {
+    let (inv, _temp) = open_inventory().await;
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+
+    inv.add_tag(&node.id, "fragile".into()).await.unwrap();
+    // The same tag with surrounding whitespace is the same tag — trimmed, then
+    // ignored by the UNIQUE constraint.
+    inv.add_tag(&node.id, "  fragile  ".into()).await.unwrap();
+    inv.add_tag(&node.id, "fragile".into()).await.unwrap();
+
+    let tags = inv.tags(&node.id).await.unwrap();
+    assert_eq!(tags, vec!["fragile"]);
+}
+
+#[tokio::test]
+async fn add_tag_skips_a_blank_tag() {
+    let (inv, _temp) = open_inventory().await;
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+
+    inv.add_tag(&node.id, "".into()).await.unwrap();
+    inv.add_tag(&node.id, "   ".into()).await.unwrap();
+
+    assert!(inv.tags(&node.id).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn tags_are_ordered_alphabetically() {
+    let (inv, _temp) = open_inventory().await;
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+
+    inv.add_tag(&node.id, "tools".into()).await.unwrap();
+    inv.add_tag(&node.id, "antique".into()).await.unwrap();
+    inv.add_tag(&node.id, "heavy".into()).await.unwrap();
+
+    let tags = inv.tags(&node.id).await.unwrap();
+    assert_eq!(tags, vec!["antique", "heavy", "tools"]);
+}
+
+#[tokio::test]
+async fn remove_tag_drops_one_tag_and_ignores_an_absent_one() {
+    let (inv, _temp) = open_inventory().await;
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+
+    inv.add_tag(&node.id, "keep".into()).await.unwrap();
+    inv.add_tag(&node.id, "drop".into()).await.unwrap();
+
+    inv.remove_tag(&node.id, "drop".into()).await.unwrap();
+    // Removing a tag the node doesn't have is a no-op, not an error.
+    inv.remove_tag(&node.id, "never-had-it".into())
+        .await
+        .unwrap();
+
+    assert_eq!(inv.tags(&node.id).await.unwrap(), vec!["keep"]);
+}
+
+#[tokio::test]
+async fn detail_returns_the_node_and_its_tags() {
+    let (inv, _temp) = open_inventory().await;
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    inv.rename(&node.id, "Drill".into()).await.unwrap();
+    inv.set_attributes(
+        &node.id,
+        Some(1),
+        Some("cordless".into()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    inv.add_tag(&node.id, "power".into()).await.unwrap();
+    inv.add_tag(&node.id, "garage".into()).await.unwrap();
+
+    let detail = inv.detail(&node.id).await.unwrap();
+    assert_eq!(detail.node.id, node.id);
+    assert_eq!(detail.node.name.as_deref(), Some("Drill"));
+    assert_eq!(detail.node.quantity, Some(1));
+    assert_eq!(detail.node.notes.as_deref(), Some("cordless"));
+    // Tags come back alphabetically, the same order as `tags`.
+    assert_eq!(detail.tags, vec!["garage", "power"]);
+}
+
+#[tokio::test]
+async fn detail_on_missing_node_is_not_found() {
+    let (inv, _temp) = open_inventory().await;
+    let err = inv.detail("nope").await.unwrap_err();
+    assert!(
+        matches!(err, visible_core::CoreError::NotFound(_)),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn deleting_a_node_cascades_its_tags() {
+    let (inv, db, _temp) = open_inventory_with_db().await;
+
+    let room = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    let thing = inv
+        .create_child_with_image(&room.id, DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    inv.add_tag(&room.id, "room-tag".into()).await.unwrap();
+    inv.add_tag(&thing.id, "thing-tag".into()).await.unwrap();
+
+    assert_eq!(node_tags_for(&db, &room.id).await, vec!["room-tag"]);
+    assert_eq!(node_tags_for(&db, &thing.id).await, vec!["thing-tag"]);
+
+    inv.delete(&room.id).await.unwrap();
+
+    // The subtree's node_tags rows cascade off the node DELETE.
+    assert!(node_tags_for(&db, &room.id).await.is_empty());
+    assert!(node_tags_for(&db, &thing.id).await.is_empty());
 }
 
 #[tokio::test]

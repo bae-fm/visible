@@ -34,6 +34,13 @@ use crate::error::CoreError;
 /// One node in the tree. `_updated_at` is coven's last-writer-wins register, not
 /// domain data the UI reads, so it is absent here — only the live write path
 /// touches it, via the stamper.
+///
+/// The attribute fields below the structural ones (`quantity` … `barcode`) are
+/// each individually optional: a node may carry any subset of them and absence
+/// is `None`, never a zero or empty string. They stay in their stored form here —
+/// `value_cents` in cents, `acquired_at` as the ISO `YYYY-MM-DD` string — and the
+/// edit form converts to its editable representation (dollars, a date picker) on
+/// the way in and back on save.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
     pub id: String,
@@ -44,11 +51,23 @@ pub struct Node {
     pub name: Option<String>,
     pub position: i64,
     pub image_id: Option<String>,
+    /// How many of this thing the node stands for (a single item is `None`, not
+    /// `1` — absence, not a count of one).
+    pub quantity: Option<i64>,
+    /// Free-text notes.
+    pub notes: Option<String>,
+    /// The thing's value in whole cents.
+    pub value_cents: Option<i64>,
+    /// When the thing was acquired, as an ISO `YYYY-MM-DD` date string.
+    pub acquired_at: Option<String>,
+    /// The thing's serial number.
+    pub serial: Option<String>,
+    /// The barcode printed on the thing.
+    pub barcode: Option<String>,
 }
 
 impl Node {
-    /// Read a node from a row selecting `id, parent_id, name, position, image_id`
-    /// in that order.
+    /// Read a node from a row selecting [`NODE_COLUMNS`] in that order.
     fn from_row(row: &Row<'_>) -> coven::rusqlite::Result<Node> {
         Ok(Node {
             id: row.get(0)?,
@@ -56,12 +75,28 @@ impl Node {
             name: row.get(2)?,
             position: row.get(3)?,
             image_id: row.get(4)?,
+            quantity: row.get(5)?,
+            notes: row.get(6)?,
+            value_cents: row.get(7)?,
+            acquired_at: row.get(8)?,
+            serial: row.get(9)?,
+            barcode: row.get(10)?,
         })
     }
 }
 
+/// One node with its tags, returned by [`Inventory::detail`] for the edit screen.
+/// Tags live in their own synced table, so the node row and its tags are read
+/// together and handed across the bridge as one record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeDetail {
+    pub node: Node,
+    pub tags: Vec<String>,
+}
+
 /// The columns every node read selects, in the order [`Node::from_row`] expects.
-const NODE_COLUMNS: &str = "id, parent_id, name, position, image_id";
+const NODE_COLUMNS: &str =
+    "id, parent_id, name, position, image_id, quantity, notes, value_cents, acquired_at, serial, barcode";
 
 /// The placeholder a search breadcrumb shows for an untitled ancestor, matching
 /// the UI's untitled placeholder so a `path_label` reads the same as the rest of
@@ -278,6 +313,14 @@ impl Inventory {
                     name: None,
                     position,
                     image_id: Some(row_image_id),
+                    // A fresh node carries no attributes; the INSERT omits these
+                    // columns so the row stores NULL for each.
+                    quantity: None,
+                    notes: None,
+                    value_cents: None,
+                    acquired_at: None,
+                    serial: None,
+                    barcode: None,
                 })
             })
             .await;
@@ -309,6 +352,147 @@ impl Inventory {
             return Err(CoreError::NotFound(format!("no node {id} to rename")));
         }
         Ok(())
+    }
+
+    /// Set a node's attributes in one write: quantity, notes, value (cents),
+    /// acquired date (ISO `YYYY-MM-DD`), serial, and barcode. Each is optional —
+    /// `None` clears the column to NULL. A blank or whitespace-only string is the
+    /// absence of the value, so it is normalized to NULL here (mirroring the
+    /// S3-config endpoint/prefix normalization): a cleared text field is stored as
+    /// absent, never as `""`. NotFound if the node doesn't exist.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn set_attributes(
+        &self,
+        id: &str,
+        quantity: Option<i64>,
+        notes: Option<String>,
+        value_cents: Option<i64>,
+        acquired_at: Option<String>,
+        serial: Option<String>,
+        barcode: Option<String>,
+    ) -> Result<(), CoreError> {
+        let notes = blank_to_none(notes);
+        let acquired_at = blank_to_none(acquired_at);
+        let serial = blank_to_none(serial);
+        let barcode = blank_to_none(barcode);
+
+        let updated_at = self.stamper.stamp();
+        let id_for_update = id.to_string();
+        let affected = self
+            .db
+            .call(move |conn| {
+                conn.execute(
+                    "UPDATE nodes SET \
+                         quantity = ?1, notes = ?2, value_cents = ?3, \
+                         acquired_at = ?4, serial = ?5, barcode = ?6, _updated_at = ?7 \
+                     WHERE id = ?8",
+                    params![
+                        quantity,
+                        notes,
+                        value_cents,
+                        acquired_at,
+                        serial,
+                        barcode,
+                        updated_at,
+                        id_for_update
+                    ],
+                )
+                .map_err(Into::into)
+            })
+            .await?;
+        if affected == 0 {
+            return Err(CoreError::NotFound(format!(
+                "no node {id} to set attributes on"
+            )));
+        }
+        Ok(())
+    }
+
+    /// A node's tags, ordered alphabetically.
+    pub async fn tags(&self, id: &str) -> Result<Vec<String>, CoreError> {
+        let id = id.to_string();
+        self.db
+            .call(move |conn| {
+                let mut stmt =
+                    conn.prepare("SELECT tag FROM node_tags WHERE node_id = ?1 ORDER BY tag")?;
+                let tags = stmt
+                    .query_map([id], |r| r.get::<_, String>(0))?
+                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+                Ok(tags)
+            })
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Add `tag` to a node. The tag is trimmed; a blank tag is nothing to add and
+    /// is skipped (logged). The insert is `INSERT OR IGNORE` against the
+    /// `UNIQUE(node_id, tag)` constraint, so adding a tag the node already has is a
+    /// no-op rather than an error.
+    pub async fn add_tag(&self, id: &str, tag: String) -> Result<(), CoreError> {
+        let tag = tag.trim().to_string();
+        if tag.is_empty() {
+            debug!(node_id = id, "skipping add of a blank tag");
+            return Ok(());
+        }
+        let row_id = self.ids.new_id();
+        let updated_at = self.stamper.stamp();
+        let node_id = id.to_string();
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "INSERT OR IGNORE INTO node_tags (id, node_id, tag, _updated_at) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![row_id, node_id, tag, updated_at],
+                )
+                .map_err(Into::into)
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Remove `tag` from a node. A tag the node doesn't have is nothing to remove
+    /// (the DELETE affects no rows).
+    pub async fn remove_tag(&self, id: &str, tag: String) -> Result<(), CoreError> {
+        let node_id = id.to_string();
+        self.db
+            .call(move |conn| {
+                conn.execute(
+                    "DELETE FROM node_tags WHERE node_id = ?1 AND tag = ?2",
+                    params![node_id, tag],
+                )
+                .map_err(Into::into)
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// A node with its tags, for the edit screen. NotFound if the node doesn't
+    /// exist. The node and its tags are read in one connection call so the screen
+    /// loads them together.
+    pub async fn detail(&self, id: &str) -> Result<NodeDetail, CoreError> {
+        let query_id = id.to_string();
+        let detail = self
+            .db
+            .call(move |conn| {
+                let node = conn
+                    .query_row(
+                        &format!("SELECT {NODE_COLUMNS} FROM nodes WHERE id = ?1"),
+                        [&query_id],
+                        Node::from_row,
+                    )
+                    .optional()?;
+                let Some(node) = node else {
+                    return Ok(None);
+                };
+                let mut stmt =
+                    conn.prepare("SELECT tag FROM node_tags WHERE node_id = ?1 ORDER BY tag")?;
+                let tags = stmt
+                    .query_map([&query_id], |r| r.get::<_, String>(0))?
+                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+                Ok(Some(NodeDetail { node, tags }))
+            })
+            .await?;
+        detail.ok_or_else(|| CoreError::NotFound(format!("no node {id} for detail")))
     }
 
     /// Delete a node and its whole subtree (the `parent_id` self-FK cascades the
@@ -517,16 +701,21 @@ impl Inventory {
 /// query lives in one place.
 fn ancestors(conn: &Connection, id: &str) -> coven::rusqlite::Result<Vec<Node>> {
     // `depth` counts hops from `id` (0) up to the root; ordering by it descending
-    // yields the root-first breadcrumb.
+    // yields the root-first breadcrumb. The walk carries no node columns of its
+    // own — it climbs `parent_id` collecting ids with their depth, then the outer
+    // query joins back to `nodes` to read the full [`NODE_COLUMNS`], so adding a
+    // node column never touches the recursive step.
     let mut stmt = conn.prepare(&format!(
-        "WITH RECURSIVE ancestors(id, parent_id, name, position, image_id, depth) AS (
-             SELECT {NODE_COLUMNS}, 0 FROM nodes WHERE id = ?1
+        "WITH RECURSIVE ancestors(node_id, next_parent, depth) AS (
+             SELECT id, parent_id, 0 FROM nodes WHERE id = ?1
              UNION ALL
-             SELECT n.id, n.parent_id, n.name, n.position, n.image_id, a.depth + 1
+             SELECT n.id, n.parent_id, a.depth + 1
              FROM nodes n
-             JOIN ancestors a ON n.id = a.parent_id
+             JOIN ancestors a ON n.id = a.next_parent
          )
-         SELECT {NODE_COLUMNS} FROM ancestors ORDER BY depth DESC"
+         SELECT {NODE_COLUMNS} FROM nodes
+         JOIN ancestors ON nodes.id = ancestors.node_id
+         ORDER BY ancestors.depth DESC"
     ))?;
     let nodes = stmt
         .query_map([id], Node::from_row)?
@@ -549,6 +738,16 @@ fn breadcrumb_label(path: &[Node]) -> String {
         .map(|node| node.name.as_deref().unwrap_or(UNTITLED_LABEL))
         .collect::<Vec<_>>()
         .join(BREADCRUMB_SEPARATOR)
+}
+
+/// An optional string with blank (empty or whitespace-only) treated as absence.
+/// A cleared text field arrives as `Some("")` or `Some("   ")` from the form; its
+/// meaning is "no value", so it normalizes to `None` and the column stores NULL.
+/// A present value is trimmed of surrounding whitespace.
+fn blank_to_none(value: Option<String>) -> Option<String> {
+    value
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// The next sibling position within `parent_id` (`MAX(position) + 1`, or 0 for
@@ -589,6 +788,12 @@ fn insert_node_image(
 /// inserted when an image is added, deleted when it is removed or replaced,
 /// never updated — so every image change is an INSERT or DELETE that coven's
 /// blob channel can carry. `nodes.image_id` points at the current image's id.
+///
+/// The attribute columns on `nodes` (`quantity` … `barcode`) are all nullable —
+/// every node starts with them NULL and the edit form sets the ones the user
+/// fills. `node_tags` is a plain synced table (no blob): each row is one tag on
+/// one node, `UNIQUE(node_id, tag)` so adding the same tag twice is idempotent,
+/// `ON DELETE CASCADE` so deleting a node drops its tags.
 pub const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS nodes (
     id          TEXT PRIMARY KEY NOT NULL,
@@ -596,6 +801,12 @@ CREATE TABLE IF NOT EXISTS nodes (
     name        TEXT,
     position    INTEGER NOT NULL,
     image_id    TEXT,
+    quantity    INTEGER,
+    notes       TEXT,
+    value_cents INTEGER,
+    acquired_at TEXT,
+    serial      TEXT,
+    barcode     TEXT,
     _updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id, position);
@@ -605,6 +816,14 @@ CREATE TABLE IF NOT EXISTS node_images (
     _updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_node_images_node ON node_images(node_id);
+CREATE TABLE IF NOT EXISTS node_tags (
+    id          TEXT PRIMARY KEY NOT NULL,
+    node_id     TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    tag         TEXT NOT NULL,
+    _updated_at TEXT NOT NULL,
+    UNIQUE(node_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_node_tags_node ON node_tags(node_id);
 ";
 
 /// Insert the root house node (parent NULL, position 0) with the given name. Used
