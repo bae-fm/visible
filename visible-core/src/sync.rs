@@ -18,11 +18,34 @@ use coven::keys::{CloudHomeCredentials, KeyService};
 use coven::library_dir::LibraryDir;
 use coven::storage::cloud::s3::S3CloudHome;
 use coven::storage::cloud::CloudHome;
-use coven::sync::sync_manager::{ConfigProvider, SyncManager};
-use tracing::warn;
+use coven::sync::sync_manager::{ConfigProvider, MemberInfo, SyncManager};
+use tracing::{debug, warn};
 
 use crate::blob_plan::NodeBlobPlan;
 use crate::error::CoreError;
+
+/// A member's role in a shared library. Re-exported from coven, which owns the
+/// membership model: `Owner` and `Member` may author changes; `Follower` is
+/// read-only.
+pub use coven::sync::membership::MemberRole;
+
+/// One member of a shared library: their device identity public key (Ed25519,
+/// hex), their role, and whether the entry is this device.
+pub struct Member {
+    pub pubkey: String,
+    pub role: MemberRole,
+    pub is_self: bool,
+}
+
+impl From<MemberInfo> for Member {
+    fn from(m: MemberInfo) -> Self {
+        Self {
+            pubkey: m.pubkey,
+            role: m.role,
+            is_self: m.is_self,
+        }
+    }
+}
 
 /// The fields needed to connect an S3-compatible cloud home, as the settings
 /// form collects them. `endpoint` and `key_prefix` are optional as cloud-home
@@ -301,6 +324,82 @@ impl Sync {
         let pending_deletes = self.db.get_pending_cloud_deletes().await?.len() as u64;
         Ok(OutboxSnapshot { pending_deletes })
     }
+
+    /// This device's identity code: its global Ed25519 public key as hex, which
+    /// the joiner sends to an owner out of band so the owner can seal the library
+    /// key to it. Read (and minted if absent) directly from the keyring-backed
+    /// [`KeyService`], not the [`SyncManager`] — the identity keypair is global,
+    /// not per-library, so a local-only library with no sync loop can still hand
+    /// out its code before connecting to anything.
+    pub async fn user_identity_code(&self) -> Result<String, CoreError> {
+        let keypair = self.key_service.get_or_create_user_keypair()?;
+        Ok(hex::encode(keypair.public_key))
+    }
+
+    /// Seal the library key to `identity_code` (a member's Ed25519 public key,
+    /// hex), append a signed membership entry, and return the invite code to send
+    /// back. Requires a running sync loop (the key must be sealed against the live
+    /// cloud home), so a local-only library can't invite.
+    pub async fn invite_member(
+        &self,
+        identity_code: &str,
+        role: MemberRole,
+    ) -> Result<String, CoreError> {
+        let manager = self.require_manager()?;
+        manager
+            .invite_member(identity_code, role)
+            .await
+            .map_err(CoreError::Sync)
+    }
+
+    /// The members of this shared library. A local-only library (no sync loop)
+    /// has no membership surface, so this returns an empty list with a `debug!`
+    /// rather than erroring — "no shared library" is a normal state, not a fault.
+    pub async fn members(&self) -> Result<Vec<Member>, CoreError> {
+        let Some(manager) = self.manager.read().unwrap().clone() else {
+            debug!("members() on a local-only library (no sync loop); returning empty");
+            return Ok(Vec::new());
+        };
+        let members = manager.get_members().await.map_err(CoreError::Sync)?;
+        Ok(members.into_iter().map(Member::from).collect())
+    }
+
+    /// Remove a member: revoke them, rotate the library master key, and re-wrap it
+    /// to the remaining members. coven returns the new key's fingerprint; persist
+    /// it to this library's config so the next launch recognizes the rotated key
+    /// (mirrors how [`Self::ensure_manager_and_start`] records the fingerprint).
+    /// Requires a running sync loop.
+    pub async fn remove_member(&self, pubkey: &str) -> Result<(), CoreError> {
+        let manager = self.require_manager()?;
+        let fingerprint = manager
+            .remove_member(pubkey)
+            .await
+            .map_err(CoreError::Sync)?;
+
+        let mut config = self.config.write().unwrap();
+        config.encryption_key_fingerprint = Some(fingerprint);
+        config.save()?;
+        Ok(())
+    }
+
+    /// This owner device's own-device recovery code, which carries the library
+    /// key so the owner can restore the library on another device. Requires a
+    /// running sync loop.
+    pub async fn restore_code(&self) -> Result<String, CoreError> {
+        let manager = self.require_manager()?;
+        manager.generate_restore_code().map_err(CoreError::Sync)
+    }
+
+    /// The live [`SyncManager`], or a clear error when sync isn't connected. The
+    /// invite/remove/restore paths all seal or rotate the library key against the
+    /// live cloud home, so they can't run on a local-only library.
+    fn require_manager(&self) -> Result<Arc<SyncManager>, CoreError> {
+        self.manager
+            .read()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| CoreError::Sync("sync not connected".into()))
+    }
 }
 
 #[cfg(test)]
@@ -374,5 +473,42 @@ mod tests {
         // and returns Ok rather than erroring on the missing manager/credentials.
         sync.disconnect().unwrap();
         assert!(!sync.sync_status().configured);
+    }
+
+    #[tokio::test]
+    async fn user_identity_code_is_the_minted_hex_pubkey() {
+        let (sync, _temp) = open_sync().await;
+        // The identity keypair is global and minted on demand from the keyring, so
+        // a local-only library hands out its code before connecting: 32 Ed25519
+        // public-key bytes as 64 lowercase hex chars.
+        let code = sync.user_identity_code().await.unwrap();
+        assert_eq!(code.len(), 64, "32-byte pubkey as hex");
+        assert!(
+            code.bytes().all(|b| b.is_ascii_hexdigit()),
+            "identity code is hex: {code}"
+        );
+        // Stable across calls — the keypair is read back, not re-minted.
+        assert_eq!(sync.user_identity_code().await.unwrap(), code);
+    }
+
+    #[tokio::test]
+    async fn members_on_a_local_only_library_is_empty() {
+        let (sync, _temp) = open_sync().await;
+        // No sync loop, so no membership surface — an empty list, not an error.
+        assert!(sync.members().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn invite_remove_restore_require_a_connected_sync() {
+        let (sync, _temp) = open_sync().await;
+        // The invite/remove/restore paths seal or rotate the library key against
+        // the live cloud home, so on a local-only library they fail with the
+        // not-connected error rather than panicking on the missing manager.
+        let invite = sync.invite_member("deadbeef", MemberRole::Member).await;
+        assert!(matches!(invite, Err(CoreError::Sync(_))), "{invite:?}");
+        let remove = sync.remove_member("deadbeef").await;
+        assert!(matches!(remove, Err(CoreError::Sync(_))), "{remove:?}");
+        let restore = sync.restore_code().await;
+        assert!(matches!(restore, Err(CoreError::Sync(_))), "{restore:?}");
     }
 }

@@ -3861,6 +3861,7 @@ dependencies = [
  "apple-native-keyring-store",
  "chrono",
  "coven",
+ "hex",
  "keyring-core",
  "serde_yaml",
  "tempfile",

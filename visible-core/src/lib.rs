@@ -18,4 +18,4 @@ pub use config::init_keyring;
 pub use error::CoreError;
 pub use library::LibraryInfo;
 pub use node::{Inventory, Node};
-pub use sync::{OutboxSnapshot, S3ConfigData, Sync, SyncStatusInfo};
+pub use sync::{Member, MemberRole, OutboxSnapshot, S3ConfigData, Sync, SyncStatusInfo};
