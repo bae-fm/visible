@@ -32,6 +32,8 @@ sealed interface BrowseDialog {
     data class Rename(val target: BridgeNode) : BrowseDialog
 
     data class ConfirmDelete(val target: BridgeNode) : BrowseDialog
+
+    data object ConfirmRemovePhoto : BrowseDialog
 }
 
 /**
@@ -83,6 +85,10 @@ class BrowseViewModel(
         dialog = BrowseDialog.ConfirmDelete(target)
     }
 
+    fun openRemovePhoto() {
+        dialog = BrowseDialog.ConfirmRemovePhoto
+    }
+
     fun dismissDialog() {
         dialog = null
     }
@@ -123,6 +129,11 @@ class BrowseViewModel(
 
     fun setImage(bytes: ByteArray) {
         mutate("setting image on $nodeId") { handle.setNodeImage(nodeId, bytes) }
+    }
+
+    fun removePhoto() {
+        dialog = null
+        mutate("clearing image on $nodeId") { handle.clearNodeImage(nodeId) }
     }
 
     /**

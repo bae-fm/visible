@@ -53,6 +53,24 @@ fun NameDialog(
 }
 
 @Composable
+fun ConfirmRemovePhotoDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Remove Photo") },
+        text = { Text("Remove this photo?") },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Remove") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
 fun ConfirmDeleteDialog(
     name: String?,
     onConfirm: () -> Unit,

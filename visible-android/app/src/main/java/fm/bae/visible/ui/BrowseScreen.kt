@@ -23,7 +23,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -35,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -60,11 +63,19 @@ fun BrowseScreen(
     onOpenSettings: (() -> Unit)? = null,
 ) {
     val content = viewModel.content
-    // Two capture sites: the photo header replaces this node's photo; the + adds
-    // a new child carrying the captured photo. Each gets its own launcher so the
-    // captured bytes route to the right model method.
-    val takeNodePhoto = rememberCameraCapture(onCaptured = viewModel::setImage)
+    // Photo capture sites. The + adds a new child carrying a captured photo. This
+    // node's own photo comes from either the camera or the library, chosen via the
+    // source sheet — each has its own launcher so the bytes route to setImage.
     val addChildWithPhoto = rememberCameraCapture(onCaptured = viewModel::addChildWithPhoto)
+    val takeNodePhoto = rememberCameraCapture(onCaptured = viewModel::setImage)
+    val pickNodePhoto = rememberLibraryPick(onPicked = viewModel::setImage)
+
+    // The Take Photo / Choose from Library source sheet for setting this node's
+    // photo, opened from a placeholder-header tap or the Change Photo menu item.
+    var choosingPhotoSource by remember { mutableStateOf(false) }
+    // The on-disk path of the node photo shown full-screen, or null while no
+    // viewer is open. Set by tapping the header when a photo is present.
+    var fullScreenPath: String? by remember { mutableStateOf(null) }
 
     // Reload whenever this screen becomes current: on first show and on return
     // from a child, so a node's photo or its children reflect changes made while
@@ -104,6 +115,8 @@ fun BrowseScreen(
                         NodeOverflowMenu(
                             node = loaded.node,
                             onEdit = { onOpenDetail(loaded.node.id) },
+                            onChangePhoto = { choosingPhotoSource = true },
+                            onRemovePhoto = { viewModel.openRemovePhoto() },
                             onRename = { viewModel.openRename(loaded.node) },
                             onMove = { onOpenMove(loaded.node.id) },
                             onDelete = { viewModel.openDelete(loaded.node) },
@@ -138,7 +151,8 @@ fun BrowseScreen(
                     viewModel = viewModel,
                     node = content.node,
                     children = content.children,
-                    onTakePhoto = takeNodePhoto,
+                    onViewPhoto = { path -> fullScreenPath = path },
+                    onChoosePhotoSource = { choosingPhotoSource = true },
                     onOpenChild = onOpenChild,
                     onOpenDetail = onOpenDetail,
                     onOpenMove = onOpenMove,
@@ -160,6 +174,56 @@ fun BrowseScreen(
             onConfirm = { viewModel.delete(dialog.target.id) },
             onDismiss = viewModel::dismissDialog,
         )
+        is BrowseDialog.ConfirmRemovePhoto -> ConfirmRemovePhotoDialog(
+            onConfirm = { viewModel.removePhoto() },
+            onDismiss = viewModel::dismissDialog,
+        )
+    }
+
+    if (choosingPhotoSource) {
+        PhotoSourceSheet(
+            onTakePhoto = {
+                choosingPhotoSource = false
+                takeNodePhoto()
+            },
+            onChooseFromLibrary = {
+                choosingPhotoSource = false
+                pickNodePhoto()
+            },
+            onDismiss = { choosingPhotoSource = false },
+        )
+    }
+
+    fullScreenPath?.let { path ->
+        FullScreenImage(path = path, onDismiss = { fullScreenPath = null })
+    }
+}
+
+/**
+ * The Take Photo / Choose from Library chooser for setting a node's photo, shown
+ * as a bottom sheet — the Android equivalent of the iOS source action sheet. Take
+ * Photo is only offered where a camera exists; Choose from Library is always
+ * available.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PhotoSourceSheet(
+    onTakePhoto: () -> Unit,
+    onChooseFromLibrary: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        if (CameraCapture.isAvailable(context)) {
+            ListItem(
+                headlineContent = { Text("Take Photo") },
+                modifier = Modifier.clickable(onClick = onTakePhoto),
+            )
+        }
+        ListItem(
+            headlineContent = { Text("Choose from Library") },
+            modifier = Modifier.clickable(onClick = onChooseFromLibrary),
+        )
     }
 }
 
@@ -168,7 +232,8 @@ private fun LoadedContent(
     viewModel: BrowseViewModel,
     node: BridgeNode,
     children: List<BridgeNode>,
-    onTakePhoto: () -> Unit,
+    onViewPhoto: (String) -> Unit,
+    onChoosePhotoSource: () -> Unit,
     onOpenChild: (String) -> Unit,
     onOpenDetail: (String) -> Unit,
     onOpenMove: (String) -> Unit,
@@ -181,13 +246,18 @@ private fun LoadedContent(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
+            val headerPath = node.imageId?.let(viewModel::imagePath)
             NodeImage(
-                path = node.imageId?.let(viewModel::imagePath),
+                path = headerPath,
                 cornerRadius = 16.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .clickable(onClick = onTakePhoto),
+                    .clickable {
+                        // A set photo opens full-screen; a placeholder offers the
+                        // Take/Choose source sheet.
+                        if (headerPath != null) onViewPhoto(headerPath) else onChoosePhotoSource()
+                    },
             )
         }
 
@@ -220,6 +290,8 @@ private fun LoadedContent(
 private fun NodeOverflowMenu(
     node: BridgeNode,
     onEdit: () -> Unit,
+    onChangePhoto: () -> Unit,
+    onRemovePhoto: () -> Unit,
     onRename: () -> Unit,
     onMove: () -> Unit,
     onDelete: () -> Unit,
@@ -237,5 +309,8 @@ private fun NodeOverflowMenu(
         onDelete = onDelete,
         // The root house has no parent: it can be neither moved nor deleted.
         isRoot = node.parentId == null,
+        onChangePhoto = onChangePhoto,
+        onRemovePhoto = onRemovePhoto,
+        hasImage = node.imageId != null,
     )
 }
