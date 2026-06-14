@@ -54,7 +54,7 @@ fun ChildCard(
                         modifier = Modifier.fillMaxWidth().aspectRatio(1f),
                     )
                     QuantityBadge(
-                        quantity = child.quantity,
+                        badge = child.quantityBadge,
                         modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
                     )
                 }
@@ -78,19 +78,19 @@ fun ChildCard(
 }
 
 /**
- * A small "×N" badge for a node that stands for more than one thing. Shown only
- * when the quantity is set and greater than one — a single item (quantity null or
- * 1) carries no badge. The count is an integer, so rendering it as "×N" is the
- * composable's job, not a domain-formatting concern.
+ * The count badge for a node that stands for more than one thing, shown over the
+ * thumbnail. [badge] is the core-precomputed "×N" string (see
+ * `Node::quantity_badge`), null for a single item, so the composable renders it
+ * directly rather than deciding the threshold or format itself.
  */
 @Composable
 private fun QuantityBadge(
-    quantity: Long?,
+    badge: String?,
     modifier: Modifier = Modifier,
 ) {
-    if (quantity != null && quantity > 1) {
+    if (badge != null) {
         Text(
-            text = "×$quantity",
+            text = badge,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onPrimary,
             modifier = modifier

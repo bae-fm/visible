@@ -67,6 +67,19 @@ pub struct Node {
 }
 
 impl Node {
+    /// The "×N" count badge the browse card shows, or `None` for a node that
+    /// stands for a single thing. A quantity of `None` or `1` is one item and
+    /// carries no badge; a quantity greater than one renders as `×N`. The
+    /// threshold and format are a display derivation, precomputed in core (like
+    /// `SearchHit::path_label`) so the cards render the string directly rather
+    /// than each platform re-deriving it.
+    pub fn quantity_badge(&self) -> Option<String> {
+        match self.quantity {
+            Some(n) if n > 1 => Some(format!("×{n}")),
+            _ => None,
+        }
+    }
+
     /// Read a node from a row selecting [`NODE_COLUMNS`] in that order.
     fn from_row(row: &Row<'_>) -> coven::rusqlite::Result<Node> {
         Ok(Node {

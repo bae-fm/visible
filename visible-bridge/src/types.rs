@@ -9,10 +9,10 @@ use visible_core::{
 
 /// A node as the browse list consumes it. No `position` — the bridge returns
 /// children already ordered, so the UI iterates in order rather than re-sorting.
-/// `quantity` is the only attribute the list needs: the card shows a count badge
-/// when a node stands for more than one thing, so the list carries it to avoid a
-/// per-card detail fetch. The rest of the attributes load through
-/// [`BridgeNodeDetail`] on the edit screen.
+/// `quantity_badge` is the only attribute the list needs: the card shows it over
+/// the thumbnail when a node stands for more than one thing, so the list carries
+/// the precomputed badge to avoid a per-card detail fetch. The rest of the
+/// attributes load through [`BridgeNodeDetail`] on the edit screen.
 #[derive(uniffi::Record)]
 pub struct BridgeNode {
     pub id: String,
@@ -21,19 +21,20 @@ pub struct BridgeNode {
     /// "Untitled" fallback for `None`.
     pub name: Option<String>,
     pub image_id: Option<String>,
-    /// How many of this thing the node stands for, or `None` for a single item.
-    /// The card shows a "×N" badge only when this is set and greater than one.
-    pub quantity: Option<i64>,
+    /// The "×N" count badge for a node that stands for more than one thing, or
+    /// `None` for a single item. Precomputed in core (see [`Node::quantity_badge`])
+    /// so the card renders the string directly.
+    pub quantity_badge: Option<String>,
 }
 
 impl From<Node> for BridgeNode {
     fn from(node: Node) -> Self {
         Self {
+            quantity_badge: node.quantity_badge(),
             id: node.id,
             parent_id: node.parent_id,
             name: node.name,
             image_id: node.image_id,
-            quantity: node.quantity,
         }
     }
 }

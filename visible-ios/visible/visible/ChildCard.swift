@@ -18,7 +18,7 @@ struct ChildCard: View {
                     .aspectRatio(1, contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .overlay(alignment: .topTrailing) {
-                        QuantityBadge(quantity: child.quantity)
+                        QuantityBadge(badge: child.quantityBadge)
                     }
                 NodeName(name: child.name)
                     .font(.body)
@@ -38,16 +38,16 @@ struct ChildCard: View {
     }
 }
 
-/// A small "×N" badge for a node that stands for more than one thing. Shown only
-/// when the quantity is set and greater than one — a single item (quantity nil or
-/// 1) carries no badge. The count is an integer, so rendering it as "×N" is the
-/// view's job, not a domain-formatting concern.
+/// The count badge for a node that stands for more than one thing, shown over the
+/// thumbnail. `badge` is the core-precomputed "×N" string (see
+/// `Node::quantity_badge`), `nil` for a single item, so the view renders it
+/// directly rather than deciding the threshold or format itself.
 private struct QuantityBadge: View {
-    let quantity: Int64?
+    let badge: String?
 
     var body: some View {
-        if let quantity, quantity > 1 {
-            Text("×\(quantity)")
+        if let badge {
+            Text(badge)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
