@@ -47,6 +47,23 @@ impl AppHandle {
             .into())
     }
 
+    pub fn create_node_with_image(
+        &self,
+        parent_id: String,
+        name: String,
+        bytes: Vec<u8>,
+    ) -> Result<BridgeNode, BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(
+                self.app
+                    .inventory
+                    .create_child_with_image(&parent_id, name, bytes),
+            )?
+            .into())
+    }
+
     pub fn rename_node(&self, id: String, name: String) -> Result<(), BridgeError> {
         Ok(self
             .app

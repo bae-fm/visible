@@ -171,6 +171,58 @@ impl Inventory {
             .map_err(Into::into)
     }
 
+    /// Append a child to `parent_id` carrying `bytes` as its one image, in a
+    /// single step that leaves no half-state. The image file is written first:
+    /// if that fails, no node is created. The node row is then inserted with its
+    /// `image_id` already set; if the insert fails, the just-written file is
+    /// unlinked. Either both the node row and its image file exist, or neither —
+    /// never a node with a missing image or an image with no node.
+    pub async fn create_child_with_image(
+        &self,
+        parent_id: &str,
+        name: String,
+        bytes: Vec<u8>,
+    ) -> Result<Node, CoreError> {
+        let image_id = uuid::Uuid::new_v4().to_string();
+        let path = self.dir.image_path(&image_id);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                CoreError::Io(format!("creating image dir {}: {e}", parent.display()))
+            })?;
+        }
+        std::fs::write(&path, &bytes)
+            .map_err(|e| CoreError::Io(format!("writing image {}: {e}", path.display())))?;
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let parent_id = parent_id.to_string();
+        let updated_at = self.stamper.stamp();
+        let row_image_id = image_id.clone();
+        let inserted = self
+            .db
+            .call(move |conn| {
+                let position = next_position(conn, &parent_id)?;
+                conn.execute(
+                    "INSERT INTO nodes (id, parent_id, name, position, image_id, _updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![id, parent_id, name, position, row_image_id, updated_at],
+                )?;
+                Ok(Node {
+                    id,
+                    parent_id: Some(parent_id),
+                    name,
+                    position,
+                    image_id: Some(row_image_id),
+                })
+            })
+            .await;
+        if inserted.is_err() {
+            // No node row references the file just written, so it is orphaned
+            // under a fresh uuid. Unlink it before surfacing the error.
+            self.remove_image_file(&image_id);
+        }
+        inserted.map_err(Into::into)
+    }
+
     /// Rename a node. NotFound if no row matched.
     pub async fn rename(&self, id: &str, name: String) -> Result<(), CoreError> {
         let updated_at = self.stamper.stamp();

@@ -178,6 +178,32 @@ async fn set_image_writes_then_replacing_removes_the_old_file() {
 }
 
 #[tokio::test]
+async fn create_child_with_image_lands_node_and_file_together() {
+    let (inv, _temp) = open_inventory().await;
+
+    let node = inv
+        .create_child_with_image("root", "Toaster".into(), b"toaster-photo".to_vec())
+        .await
+        .unwrap();
+
+    assert_eq!(node.name, "Toaster");
+    assert_eq!(node.parent_id.as_deref(), Some("root"));
+    let image_id = node.image_id.expect("node carries an image id");
+
+    // The image file is on disk with the bytes we passed.
+    let path = inv
+        .image_path_if_exists(&image_id)
+        .expect("image file on disk");
+    assert_eq!(std::fs::read(&path).unwrap(), b"toaster-photo");
+
+    // The node is a child of root, with its image id preserved on reload.
+    let children = inv.children("root").await.unwrap();
+    assert_eq!(children.len(), 1);
+    assert_eq!(children[0].id, node.id);
+    assert_eq!(children[0].image_id.as_deref(), Some(image_id.as_str()));
+}
+
+#[tokio::test]
 async fn set_image_on_missing_node_writes_nothing() {
     let (inv, _temp) = open_inventory().await;
     let err = inv.set_image("nope", b"x".to_vec()).await.unwrap_err();

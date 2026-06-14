@@ -87,12 +87,11 @@ final class BrowseModel {
 
     /// Create a new child under this node carrying `bytes` as its photo and an
     /// empty name — the photo is the thing's identity until it is titled (by
-    /// rename, or later by on-device vision). Both bridge calls run in one write
-    /// so the child and its image land together before the reload.
+    /// rename, or later by on-device vision). The node and its image are written
+    /// in one atomic core call, so the child never appears without its photo.
     func addChildWithPhoto(_ bytes: Data) {
         mutate("creating child of \(nodeId) with photo") {
-            let child = try $0.createNode(parentId: self.nodeId, name: "")
-            try $0.setNodeImage(id: child.id, bytes: bytes)
+            _ = try $0.createNodeWithImage(parentId: self.nodeId, name: "", bytes: bytes)
         }
     }
 
