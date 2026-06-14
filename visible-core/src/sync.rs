@@ -24,14 +24,16 @@ use tracing::warn;
 use crate::blob_plan::NodeBlobPlan;
 use crate::error::CoreError;
 
-/// The fields needed to connect an S3-compatible cloud home. `endpoint` and
-/// `key_prefix` are optional (AWS S3 needs no endpoint; the prefix is for sharing
-/// a bucket across libraries).
+/// The fields needed to connect an S3-compatible cloud home, as the settings
+/// form collects them. `endpoint` and `key_prefix` are optional as cloud-home
+/// config (AWS S3 needs no endpoint; the prefix is for sharing a bucket across
+/// libraries) — the form passes a blank string for an absent one, and
+/// [`Sync::save_s3_config`] reads blank as "no endpoint/prefix".
 pub struct S3ConfigData {
     pub bucket: String,
     pub region: String,
-    pub endpoint: Option<String>,
-    pub key_prefix: Option<String>,
+    pub endpoint: String,
+    pub key_prefix: String,
     pub access_key: String,
     pub secret_key: String,
 }
@@ -94,12 +96,12 @@ impl Sync {
     /// time, not via a delayed reconnect banner), then save the credentials and
     /// the cloud-home config and bring the sync loop up.
     pub async fn save_s3_config(&self, data: S3ConfigData) -> Result<(), CoreError> {
-        // Normalize the optional fields once, at the input boundary: a blank form
-        // box is the absence of an endpoint/prefix, so it becomes None before it
-        // reaches either the probe or the persisted config. Both then see the same
-        // shape, and Some("") never travels downstream.
-        let endpoint = data.endpoint.filter(|s| !s.is_empty());
-        let key_prefix = data.key_prefix.filter(|s| !s.is_empty());
+        // Normalize the optional fields once, here, where the single cloud home
+        // is built: a blank form box is the absence of an endpoint/prefix, so it
+        // becomes None before it reaches either the probe or the persisted config.
+        // Both then see the same shape, and Some("") never travels downstream.
+        let endpoint = (!data.endpoint.is_empty()).then_some(data.endpoint);
+        let key_prefix = (!data.key_prefix.is_empty()).then_some(data.key_prefix);
 
         // Probe first — build a throwaway client just to verify reachability.
         let probe_home = S3CloudHome::new(

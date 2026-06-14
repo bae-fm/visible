@@ -14,8 +14,8 @@ private let logger = Logger.visible("SettingsModel")
 final class SettingsModel {
     private let handle: AppHandle
 
-    // The editable S3 form fields, seeded blank (form-seeding exemption). Empty
-    // optional boxes (endpoint, key prefix) map back to nil on connect.
+    // The editable S3 form fields, seeded blank (form-seeding exemption). A
+    // blank endpoint or key prefix means absent; core reads it that way.
     var bucket = ""
     var region = ""
     var endpoint = ""
@@ -92,12 +92,13 @@ final class SettingsModel {
         errorMessage = nil
         working = true
         let handle = handle
-        // Trim optional boxes back to nil when blank — the inverse of seeding.
+        // The form strings pass through raw; core reads a blank endpoint/prefix
+        // as absent.
         let config = BridgeS3Config(
             bucket: bucket,
             region: region,
-            endpoint: endpoint.isEmpty ? nil : endpoint,
-            keyPrefix: keyPrefix.isEmpty ? nil : keyPrefix,
+            endpoint: endpoint,
+            keyPrefix: keyPrefix,
             accessKey: accessKey,
             secretKey: secretKey
         )

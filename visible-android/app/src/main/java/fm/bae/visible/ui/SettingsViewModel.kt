@@ -27,8 +27,8 @@ private const val TAG = "visible.SettingsViewModel"
 class SettingsViewModel(
     private val handle: AppHandle,
 ) : ViewModel() {
-    // The editable S3 form fields, seeded blank (form-seeding exemption). Empty
-    // optional boxes (endpoint, key prefix) map back to null on connect.
+    // The editable S3 form fields, seeded blank (form-seeding exemption). A
+    // blank endpoint or key prefix means absent; core reads it that way.
     var bucket by mutableStateOf("")
     var region by mutableStateOf("")
     var endpoint by mutableStateOf("")
@@ -100,12 +100,13 @@ class SettingsViewModel(
     fun connect() {
         errorMessage = null
         working = true
-        // Trim optional boxes back to null when blank — the inverse of seeding.
+        // The form strings pass through raw; core reads a blank endpoint/prefix
+        // as absent.
         val config = BridgeS3Config(
             bucket = bucket,
             region = region,
-            endpoint = endpoint.ifEmpty { null },
-            keyPrefix = keyPrefix.ifEmpty { null },
+            endpoint = endpoint,
+            keyPrefix = keyPrefix,
             accessKey = accessKey,
             secretKey = secretKey,
         )
