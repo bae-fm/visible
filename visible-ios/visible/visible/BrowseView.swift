@@ -163,7 +163,6 @@ struct BrowseView: View {
         switch dialog {
         case let .rename(target):
             NameSheet(
-                title: "Rename",
                 // Seed the editable field with the current title, or blank if untitled.
                 initial: target.name ?? "",
                 onConfirm: { name in model.rename(id: target.id, name: name) },

@@ -125,7 +125,6 @@ fun BrowseScreen(
     when (val dialog = viewModel.dialog) {
         null -> {}
         is BrowseDialog.Rename -> NameDialog(
-            title = "Rename",
             // Seed the editable field with the current title, or blank if untitled.
             initial = dialog.target.name ?: "",
             onConfirm = { name -> viewModel.rename(dialog.target.id, name) },

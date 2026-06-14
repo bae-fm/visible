@@ -15,13 +15,12 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 
 /**
- * A single-field name prompt for renaming a node. [onConfirm] receives the
- * trimmed name; the confirm button is disabled while the trimmed text is blank,
- * so an empty name can't be submitted.
+ * A single-field prompt for renaming a node. [onConfirm] receives the trimmed
+ * name; the confirm button is disabled while the trimmed text is blank, so an
+ * empty name can't be submitted.
  */
 @Composable
 fun NameDialog(
-    title: String,
     initial: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -31,7 +30,7 @@ fun NameDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = { Text("Rename") },
         text = {
             OutlinedTextField(
                 value = text,
@@ -44,7 +43,7 @@ fun NameDialog(
                 onClick = { onConfirm(trimmed) },
                 enabled = trimmed.isNotEmpty(),
             ) {
-                Text(title)
+                Text("Rename")
             }
         },
         dismissButton = {
