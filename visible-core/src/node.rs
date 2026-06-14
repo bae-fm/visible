@@ -63,6 +63,26 @@ impl Node {
 /// The columns every node read selects, in the order [`Node::from_row`] expects.
 const NODE_COLUMNS: &str = "id, parent_id, name, position, image_id";
 
+/// The placeholder a search breadcrumb shows for an untitled ancestor, matching
+/// the UI's untitled placeholder so a `path_label` reads the same as the rest of
+/// the app.
+const UNTITLED_LABEL: &str = "Untitled";
+
+/// The separator between breadcrumb segments in a [`SearchHit::path_label`].
+const BREADCRUMB_SEPARATOR: &str = " › ";
+
+/// One search match: the matching [`Node`], its breadcrumb from the root down to
+/// it inclusive (`path`, the same shape [`Inventory::path_to`] returns), and a
+/// display label of just its ancestors (`path_label`, root→parent, the matched
+/// node excluded). The label is built in core so the UI renders it directly
+/// rather than joining names itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub node: Node,
+    pub path: Vec<Node>,
+    pub path_label: String,
+}
+
 /// The cloud key for an image blob: `images/{ab}/{cd}/{image_id}`. coven's blob
 /// layout and cloud outbox use the same content-addressed key, so the changeset
 /// channel upload of a `node_images` INSERT and the outbox delete of the same
@@ -155,36 +175,59 @@ impl Inventory {
             .map_err(Into::into)
     }
 
-    /// The breadcrumb from the root down to `id`, root first. Walks `parent_id`
-    /// up via a recursive CTE, then returns the path ordered top-down. NotFound
-    /// if `id` doesn't exist (the walk is empty).
+    /// The breadcrumb from the root down to `id`, root first (the same shape
+    /// [`Inventory::search`] returns per match). NotFound if `id` doesn't exist
+    /// (the walk is empty).
     pub async fn path_to(&self, id: &str) -> Result<Vec<Node>, CoreError> {
         let id = id.to_string();
-        let path = self
-            .db
-            .call(move |conn| {
-                // `depth` counts hops from `id` (0) up to the root; ordering by
-                // it descending yields the root-first breadcrumb.
-                let mut stmt = conn.prepare(&format!(
-                    "WITH RECURSIVE ancestors(id, parent_id, name, position, image_id, depth) AS (
-                         SELECT {NODE_COLUMNS}, 0 FROM nodes WHERE id = ?1
-                         UNION ALL
-                         SELECT n.id, n.parent_id, n.name, n.position, n.image_id, a.depth + 1
-                         FROM nodes n
-                         JOIN ancestors a ON n.id = a.parent_id
-                     )
-                     SELECT {NODE_COLUMNS} FROM ancestors ORDER BY depth DESC"
-                ))?;
-                let nodes = stmt
-                    .query_map([id], Node::from_row)?
-                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
-                Ok(nodes)
-            })
-            .await?;
+        let path = self.db.call(move |conn| Ok(ancestors(conn, &id)?)).await?;
         if path.is_empty() {
             return Err(CoreError::NotFound("no node for breadcrumb".into()));
         }
         Ok(path)
+    }
+
+    /// Every node whose `name` contains `query` (case-insensitive substring),
+    /// each with its breadcrumb. The root house is excluded — you are always "in"
+    /// it, so search finds its contents, not the house itself — and untitled
+    /// nodes (`name` NULL) never match a text query. An empty or whitespace-only
+    /// query has nothing to match, so returns no results. Results are ordered by
+    /// name. Each match's breadcrumb is walked on the same connection as the
+    /// match query, so the whole search is one connection call (no per-match
+    /// round trip).
+    pub async fn search(&self, query: &str) -> Result<Vec<SearchHit>, CoreError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(vec![]);
+        }
+        let query = query.to_string();
+        self.db
+            .call(move |conn| {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {NODE_COLUMNS} FROM nodes \
+                     WHERE parent_id IS NOT NULL \
+                       AND name LIKE '%' || ?1 || '%' COLLATE NOCASE \
+                     ORDER BY name"
+                ))?;
+                let matches = stmt
+                    .query_map([&query], Node::from_row)?
+                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+                let hits = matches
+                    .into_iter()
+                    .map(|node| {
+                        let path = ancestors(conn, &node.id)?;
+                        let path_label = breadcrumb_label(&path);
+                        Ok(SearchHit {
+                            node,
+                            path,
+                            path_label,
+                        })
+                    })
+                    .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+                Ok(hits)
+            })
+            .await
+            .map_err(Into::into)
     }
 
     /// Append an untitled child to `parent_id` carrying `bytes` as its one image,
@@ -453,6 +496,48 @@ impl Inventory {
             Err(e) => warn!(image_id, path = %path.display(), "failed to unlink image file: {e}"),
         }
     }
+}
+
+/// The breadcrumb from the root down to `id`, root first. Walks `parent_id` up
+/// via a recursive CTE, then returns the path ordered top-down (root, …, the
+/// node). Empty when `id` doesn't exist (the walk starts from no row). The single
+/// home for the ancestor walk, called by [`Inventory::path_to`] for one node's
+/// breadcrumb and by [`Inventory::search`] for each match's, so the breadcrumb
+/// query lives in one place.
+fn ancestors(conn: &Connection, id: &str) -> coven::rusqlite::Result<Vec<Node>> {
+    // `depth` counts hops from `id` (0) up to the root; ordering by it descending
+    // yields the root-first breadcrumb.
+    let mut stmt = conn.prepare(&format!(
+        "WITH RECURSIVE ancestors(id, parent_id, name, position, image_id, depth) AS (
+             SELECT {NODE_COLUMNS}, 0 FROM nodes WHERE id = ?1
+             UNION ALL
+             SELECT n.id, n.parent_id, n.name, n.position, n.image_id, a.depth + 1
+             FROM nodes n
+             JOIN ancestors a ON n.id = a.parent_id
+         )
+         SELECT {NODE_COLUMNS} FROM ancestors ORDER BY depth DESC"
+    ))?;
+    let nodes = stmt
+        .query_map([id], Node::from_row)?
+        .collect::<coven::rusqlite::Result<Vec<_>>>()?;
+    Ok(nodes)
+}
+
+/// The display label for a search match's ancestors: every node in its breadcrumb
+/// except the matched node itself (the last element), joined by
+/// [`BREADCRUMB_SEPARATOR`], with an untitled ancestor rendered as
+/// [`UNTITLED_LABEL`]. The breadcrumb is root→node inclusive, so the ancestors
+/// are every element before the last: a thing on a shelf with breadcrumb
+/// `[Home, Living Room, Shelf, thing]` yields `"Home › Living Room › Shelf"`.
+/// Empty for the root itself (no ancestors), though search never returns the
+/// root.
+fn breadcrumb_label(path: &[Node]) -> String {
+    let ancestor_count = path.len().saturating_sub(1);
+    path[..ancestor_count]
+        .iter()
+        .map(|node| node.name.as_deref().unwrap_or(UNTITLED_LABEL))
+        .collect::<Vec<_>>()
+        .join(BREADCRUMB_SEPARATOR)
 }
 
 /// The next sibling position within `parent_id` (`MAX(position) + 1`, or 0 for

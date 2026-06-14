@@ -313,6 +313,108 @@ async fn path_to_missing_node_is_not_found() {
     );
 }
 
+/// Create a child of `parent` and give it `name`, returning the titled node id.
+/// Every node is photo-first then renamed, mirroring how the app titles things.
+async fn create_named(inv: &Inventory, parent: &str, name: &str) -> String {
+    let node = inv
+        .create_child_with_image(parent, DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    inv.rename(&node.id, name.into()).await.unwrap();
+    node.id
+}
+
+#[tokio::test]
+async fn search_returns_the_match_with_its_breadcrumb_and_ancestor_label() {
+    let (inv, _temp) = open_inventory().await;
+
+    // Home -> Living Room -> Shelf -> Vase
+    let room = create_named(&inv, "root", "Living Room").await;
+    let shelf = create_named(&inv, &room, "Shelf").await;
+    let vase = create_named(&inv, &shelf, "Vase").await;
+
+    let hits = inv.search("vase").await.unwrap();
+    assert_eq!(hits.len(), 1);
+    let hit = &hits[0];
+    assert_eq!(hit.node.id, vase);
+    assert_eq!(hit.node.name.as_deref(), Some("Vase"));
+
+    // The breadcrumb is the full root->node path, so the UI has every ancestor id
+    // to navigate by.
+    let path_ids: Vec<&str> = hit.path.iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(
+        path_ids,
+        vec!["root", room.as_str(), shelf.as_str(), vase.as_str()]
+    );
+
+    // The label is the ancestors only (root->parent), the matched node excluded.
+    assert_eq!(hit.path_label, "Home › Living Room › Shelf");
+}
+
+#[tokio::test]
+async fn search_is_case_insensitive_and_matches_substrings() {
+    let (inv, _temp) = open_inventory().await;
+    let id = create_named(&inv, "root", "Blue Toolbox").await;
+
+    for query in ["toolbox", "TOOLBOX", "ToolBox", "oolbo"] {
+        let hits = inv.search(query).await.unwrap();
+        assert_eq!(hits.len(), 1, "query {query:?}");
+        assert_eq!(hits[0].node.id, id, "query {query:?}");
+    }
+}
+
+#[tokio::test]
+async fn search_excludes_the_root_and_untitled_nodes() {
+    let (inv, _temp) = open_inventory().await;
+
+    // An untitled (photo-first, never renamed) child of root.
+    inv.create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    // A titled child of root.
+    let book = create_named(&inv, "root", "Book").await;
+
+    // The root house is named "Home" but is never a search result — you are
+    // always in it.
+    assert!(inv.search("home").await.unwrap().is_empty());
+
+    // Untitled nodes never match a text query; the titled sibling does. A query
+    // that would match nothing-but-untitled returns nothing.
+    let hits = inv.search("book").await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].node.id, book);
+
+    // A direct child of root has only the root above it, so its ancestor label is
+    // just the root's name.
+    assert_eq!(hits[0].path_label, "Home");
+}
+
+#[tokio::test]
+async fn search_renders_an_untitled_ancestor_in_the_label() {
+    let (inv, _temp) = open_inventory().await;
+
+    // Home -> (untitled box) -> Wrench. The box is photo-first, never renamed.
+    let box_node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    create_named(&inv, &box_node.id, "Wrench").await;
+
+    let hits = inv.search("wrench").await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].path_label, "Home › Untitled");
+}
+
+#[tokio::test]
+async fn search_with_an_empty_or_whitespace_query_returns_nothing() {
+    let (inv, _temp) = open_inventory().await;
+    create_named(&inv, "root", "Anything").await;
+
+    assert!(inv.search("").await.unwrap().is_empty());
+    assert!(inv.search("   ").await.unwrap().is_empty());
+    assert!(inv.search("\t\n").await.unwrap().is_empty());
+}
+
 /// Whether a `node_images` row exists for `image_id`. Images push to peers as
 /// `node_images` INSERTs over coven's changeset channel (see
 /// [`visible_core::blob_plan`]), so the presence of this row is what coven's blob
