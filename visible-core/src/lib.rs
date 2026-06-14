@@ -6,11 +6,16 @@
 //! image files those nodes point at.
 
 pub mod app;
+pub mod blob_plan;
+pub mod config;
 pub mod error;
 pub mod library;
 pub mod node;
+pub mod sync;
 
 pub use app::RunningApp;
+pub use config::init_keyring;
 pub use error::CoreError;
 pub use library::LibraryInfo;
 pub use node::{Inventory, Node};
+pub use sync::{OutboxSnapshot, S3ConfigData, Sync, SyncStatusInfo};

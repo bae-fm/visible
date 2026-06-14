@@ -3,7 +3,22 @@
 //! Everything the user owns is a node in one self-referential tree: the house
 //! at the root (`parent_id` NULL), then rooms, containers, and things, each
 //! optionally carrying one image file. A node's children are its contents.
+//!
+//! ## Image blobs and cloud sync
+//!
+//! A node's image is stored locally as a content-addressed plaintext file named
+//! by `image_id`. When a cloud provider is connected, coven uploads an encrypted
+//! copy of that file as a blob. visible records the upload/delete intent in
+//! coven's cloud outbox, inside the same `db.call` closure that writes the node
+//! row, so a row never reaches a peer without its image's upload queued (coven's
+//! changeset push gates on pending uploads). The intents are recorded
+//! unconditionally — for a local-only library the outbox simply never drains.
+//! See [`crate::blob_plan`] for why uploads go through the outbox rather than the
+//! changeset blob channel.
 
+use coven::blob::BlobScope;
+use coven::clock::ClockRef;
+use coven::id_provider::IdRef;
 use coven::library_dir::LibraryDir;
 use coven::rusqlite::{params, Connection, OptionalExtension, Row};
 use coven::{Database, UpdatedAtStamper};
@@ -43,19 +58,44 @@ impl Node {
 /// The columns every node read selects, in the order [`Node::from_row`] expects.
 const NODE_COLUMNS: &str = "id, parent_id, name, position, image_id";
 
+/// The cloud namespace images live under, matching [`crate::blob_plan`].
+const IMAGE_NAMESPACE: &str = "images";
+
+/// The cloud key for an image blob: `images/{ab}/{cd}/{image_id}`. coven's blob
+/// layout and outbox use the same content-addressed key, so an outbox-enqueued
+/// upload and a changeset-channel upload of the same image write the same object.
+fn image_cloud_key(image_id: &str) -> String {
+    LibraryDir::hashed_path(IMAGE_NAMESPACE, image_id)
+}
+
 /// The live inventory for one open library: the node tree plus its image files.
 /// Holds the coven database handle (the owned SQLite connection), the register
-/// stamper bound into every node write, and the library directory that locates
-/// image files on disk.
+/// stamper bound into every node write, the library directory that locates image
+/// files on disk, the id source for new nodes and images, and the wall clock
+/// that timestamps cloud-outbox intents.
 pub struct Inventory {
     db: Database,
     stamper: UpdatedAtStamper,
     dir: LibraryDir,
+    ids: IdRef,
+    clock: ClockRef,
 }
 
 impl Inventory {
-    pub fn new(db: Database, stamper: UpdatedAtStamper, dir: LibraryDir) -> Self {
-        Self { db, stamper, dir }
+    pub fn new(
+        db: Database,
+        stamper: UpdatedAtStamper,
+        dir: LibraryDir,
+        ids: IdRef,
+        clock: ClockRef,
+    ) -> Self {
+        Self {
+            db,
+            stamper,
+            dir,
+            ids,
+            clock,
+        }
     }
 
     /// The single top-level node (the house, `parent_id` NULL).
@@ -145,9 +185,11 @@ impl Inventory {
     /// in a single step that leaves no half-state. The image file is written
     /// first: if that fails, no node is created. The node row is then inserted
     /// with its `image_id` already set and `name = NULL` (a photo-first child
-    /// starts untitled until renamed); if the insert fails, the just-written
-    /// file is unlinked. Either both the node row and its image file exist, or
-    /// neither — never a node with a missing image or an image with no node.
+    /// starts untitled until renamed), and the image's cloud upload is enqueued
+    /// in the same connection call as the insert, so the row and its upload
+    /// intent commit together. If the insert fails, the just-written file is
+    /// unlinked. Either both the node row and its image file exist, or neither —
+    /// never a node with a missing image or an image with no node.
     pub async fn create_child_with_image(
         &self,
         parent_id: &str,
@@ -155,10 +197,16 @@ impl Inventory {
     ) -> Result<Node, CoreError> {
         let image_id = self.store_new_image(&bytes)?;
 
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = self.ids.new_id();
         let parent_id = parent_id.to_string();
         let updated_at = self.stamper.stamp();
+        let created_at = self.clock.now().to_rfc3339();
         let row_image_id = image_id.clone();
+        let source_path = self
+            .dir
+            .image_path(&image_id)
+            .to_string_lossy()
+            .into_owned();
         let inserted = self
             .db
             .call(move |conn| {
@@ -167,6 +215,14 @@ impl Inventory {
                     "INSERT INTO nodes (id, parent_id, name, position, image_id, _updated_at) \
                      VALUES (?1, ?2, NULL, ?3, ?4, ?5)",
                     params![id, parent_id, position, row_image_id, updated_at],
+                )?;
+                Database::enqueue_upload_on(
+                    conn,
+                    &row_image_id,
+                    &image_cloud_key(&row_image_id),
+                    Some(&source_path),
+                    BlobScope::Master,
+                    &created_at,
                 )?;
                 Ok(Node {
                     id,
@@ -179,7 +235,7 @@ impl Inventory {
             .await;
         if inserted.is_err() {
             // No node row references the file just written, so it is orphaned
-            // under a fresh uuid. Unlink it before surfacing the error.
+            // under a fresh id. Unlink it before surfacing the error.
             self.remove_image_file(&image_id);
         }
         inserted.map_err(Into::into)
@@ -208,11 +264,14 @@ impl Inventory {
     }
 
     /// Delete a node and its whole subtree (the `parent_id` self-FK cascades the
-    /// row deletes), then remove the subtree's image files from disk. The image
-    /// ids are collected and the rows deleted in one connection call, so no
-    /// concurrent insert can slip into the subtree between collect and delete.
-    /// The disk unlinks are best-effort and a failed one is logged, not fatal
-    /// (the row is already gone).
+    /// row deletes), then remove the subtree's image files from disk and enqueue
+    /// each image's cloud blob for deletion. The image ids are collected and the
+    /// rows deleted in one connection call, so no concurrent insert can slip into
+    /// the subtree between collect and delete. The cloud deletes are enqueued
+    /// after the rows are gone (coven exposes no transaction-composable delete
+    /// enqueue, and a delete needs no atomicity with the row — the referencing
+    /// row is already removed). The disk unlinks are best-effort and a failed one
+    /// is logged, not fatal (the row is already gone).
     ///
     /// The root house (`parent_id` NULL) cannot be deleted: the tree always has
     /// exactly one root, so deleting it would leave an empty library with no node
@@ -270,6 +329,7 @@ impl Inventory {
             Outcome::Deleted(image_ids) => {
                 for image_id in image_ids {
                     self.remove_image_file(&image_id);
+                    self.enqueue_image_delete(&image_id).await;
                 }
                 Ok(())
             }
@@ -277,9 +337,10 @@ impl Inventory {
     }
 
     /// Set a node's image: write `bytes` to a fresh content-addressed file, point
-    /// the node at it, then unlink the previous image file if there was one.
-    /// NotFound if the node doesn't exist — checked before any file is written so
-    /// a missing node leaves no orphan file behind.
+    /// the node at it and enqueue the new image's upload in one connection call,
+    /// then unlink the previous image file and enqueue its cloud blob for
+    /// deletion if there was one. NotFound if the node doesn't exist — checked
+    /// before any file is written so a missing node leaves no orphan file behind.
     pub async fn set_image(&self, id: &str, bytes: Vec<u8>) -> Result<(), CoreError> {
         let existing = self
             .get(id)
@@ -289,21 +350,34 @@ impl Inventory {
         let image_id = self.store_new_image(&bytes)?;
 
         let updated_at = self.stamper.stamp();
+        let created_at = self.clock.now().to_rfc3339();
         let id = id.to_string();
         let new_image_id = image_id.clone();
+        let source_path = self
+            .dir
+            .image_path(&image_id)
+            .to_string_lossy()
+            .into_owned();
         let update = self
             .db
             .call(move |conn| {
                 conn.execute(
                     "UPDATE nodes SET image_id = ?1, _updated_at = ?2 WHERE id = ?3",
                     params![new_image_id, updated_at, id],
+                )?;
+                Database::enqueue_upload_on(
+                    conn,
+                    &new_image_id,
+                    &image_cloud_key(&new_image_id),
+                    Some(&source_path),
+                    BlobScope::Master,
+                    &created_at,
                 )
-                .map_err(Into::into)
             })
             .await;
         if update.is_err() {
             // The row never took the new image, so the file just written is
-            // orphaned under a fresh uuid nothing references. Unlink it before
+            // orphaned under a fresh id nothing references. Unlink it before
             // surfacing the error rather than leaking it.
             self.remove_image_file(&image_id);
         }
@@ -311,6 +385,7 @@ impl Inventory {
 
         if let Some(old) = existing.image_id {
             self.remove_image_file(&old);
+            self.enqueue_image_delete(&old).await;
         }
         Ok(())
     }
@@ -335,7 +410,7 @@ impl Inventory {
     /// node row at it (and unlink the file if the row write then fails). The id
     /// is fresh per call, so the file nothing references yet can't collide.
     fn store_new_image(&self, bytes: &[u8]) -> Result<String, CoreError> {
-        let image_id = uuid::Uuid::new_v4().to_string();
+        let image_id = self.ids.new_id();
         let path = self.dir.image_path(&image_id);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -345,6 +420,22 @@ impl Inventory {
         std::fs::write(&path, bytes)
             .map_err(|e| CoreError::Io(format!("writing image {}: {e}", path.display())))?;
         Ok(image_id)
+    }
+
+    /// Enqueue an image's cloud blob for deletion. Best-effort: a failed enqueue
+    /// is logged, not fatal — the node row that referenced the image is already
+    /// gone, so a lingering cloud blob is leakage, not a fault that should fail
+    /// the operation that already committed. Runs even for a local-only library
+    /// (the outbox just never drains).
+    async fn enqueue_image_delete(&self, image_id: &str) {
+        let created_at = self.clock.now().to_rfc3339();
+        if let Err(e) = self
+            .db
+            .enqueue_delete(&image_cloud_key(image_id), &created_at)
+            .await
+        {
+            warn!(image_id, "failed to enqueue cloud blob delete: {e}");
+        }
     }
 
     /// Best-effort unlink of an image file. A missing file is fine (already

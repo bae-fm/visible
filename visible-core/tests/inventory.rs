@@ -1,6 +1,11 @@
 //! Tests the real [`Inventory`] against a real coven [`Database`] on a temp
 //! directory — the production unit, not a reconstruction.
 
+use std::sync::Arc;
+
+use chrono::{TimeZone, Utc};
+use coven::clock::{ClockRef, FixedClock};
+use coven::id_provider::{IdRef, SequentialIdProvider};
 use coven::library_dir::LibraryDir;
 use coven::{Database, UpdatedAtStamper};
 use tempfile::TempDir;
@@ -11,8 +16,17 @@ use visible_core::Inventory;
 /// Open a real database on a fresh temp library dir, lay down the schema and a
 /// root house node, and return the live inventory (plus the tempdir, which must
 /// outlive it). Mirrors what `library::create` + `app::bootstrap` do, so the
-/// test drives the production node-tree code.
+/// test drives the production node-tree code. Injects a deterministic id source
+/// and a fixed clock so node/image ids and outbox timestamps are reproducible.
 async fn open_inventory() -> (Inventory, TempDir) {
+    let (inv, _db, temp) = open_inventory_with_db().await;
+    (inv, temp)
+}
+
+/// Like [`open_inventory`] but also returns the database handle, so a test can
+/// read coven's cloud outbox to assert the image upload/delete intents the node
+/// writes enqueue.
+async fn open_inventory_with_db() -> (Inventory, Database, TempDir) {
     let temp = TempDir::new().expect("temp dir");
     let dir = LibraryDir::new(temp.path().join("library"));
     std::fs::create_dir_all(&*dir).expect("create library dir");
@@ -21,7 +35,12 @@ async fn open_inventory() -> (Inventory, TempDir) {
 
     seed_root(&db, &stamper).await;
 
-    (Inventory::new(db, stamper, dir), temp)
+    let ids: IdRef = Arc::new(SequentialIdProvider::new("node"));
+    let clock: ClockRef = Arc::new(FixedClock(
+        Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap(),
+    ));
+    let inv = Inventory::new(db.clone(), stamper, dir, ids, clock);
+    (inv, db, temp)
 }
 
 async fn seed_root(db: &Database, stamper: &UpdatedAtStamper) {
@@ -291,4 +310,91 @@ async fn path_to_missing_node_is_not_found() {
         matches!(err, visible_core::CoreError::NotFound(_)),
         "{err:?}"
     );
+}
+
+/// The cloud key coven's blob layout and the outbox both use for an image:
+/// `images/{ab}/{cd}/{image_id}`. The test builds it the same way the node write
+/// does (via coven's `LibraryDir::hashed_path`) so it asserts the real key, not
+/// a hand-spelled one.
+fn image_cloud_key(image_id: &str) -> String {
+    LibraryDir::hashed_path("images", image_id)
+}
+
+#[tokio::test]
+async fn create_child_with_image_enqueues_the_upload_in_the_outbox() {
+    let (inv, db, _temp) = open_inventory_with_db().await;
+
+    let node = inv
+        .create_child_with_image("root", b"photo".to_vec())
+        .await
+        .unwrap();
+    let image_id = node.image_id.unwrap();
+
+    let uploads = db.get_pending_cloud_uploads().await.unwrap();
+    assert_eq!(uploads.len(), 1, "one upload queued for the new image");
+    assert_eq!(uploads[0].cloud_key, image_cloud_key(&image_id));
+    assert!(db.get_pending_cloud_deletes().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn set_image_enqueues_new_upload_and_old_delete() {
+    let (inv, db, _temp) = open_inventory_with_db().await;
+
+    let node = inv
+        .create_child_with_image("root", b"first".to_vec())
+        .await
+        .unwrap();
+    let first_image = node.image_id.unwrap();
+
+    inv.set_image(&node.id, b"second".to_vec()).await.unwrap();
+    let second_image = inv.get(&node.id).await.unwrap().unwrap().image_id.unwrap();
+
+    // Both images are queued for upload (the first from create, the second from
+    // set_image); the replaced first image is queued for cloud deletion.
+    let upload_keys: Vec<String> = db
+        .get_pending_cloud_uploads()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.cloud_key)
+        .collect();
+    assert!(upload_keys.contains(&image_cloud_key(&first_image)));
+    assert!(upload_keys.contains(&image_cloud_key(&second_image)));
+
+    let delete_keys: Vec<String> = db
+        .get_pending_cloud_deletes()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.cloud_key)
+        .collect();
+    assert_eq!(delete_keys, vec![image_cloud_key(&first_image)]);
+}
+
+#[tokio::test]
+async fn delete_enqueues_a_cloud_delete_for_every_image_in_the_subtree() {
+    let (inv, db, _temp) = open_inventory_with_db().await;
+
+    let room = inv
+        .create_child_with_image("root", b"room".to_vec())
+        .await
+        .unwrap();
+    let thing = inv
+        .create_child_with_image(&room.id, b"thing".to_vec())
+        .await
+        .unwrap();
+    let room_image = room.image_id.unwrap();
+    let thing_image = thing.image_id.unwrap();
+
+    inv.delete(&room.id).await.unwrap();
+
+    let delete_keys: Vec<String> = db
+        .get_pending_cloud_deletes()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.cloud_key)
+        .collect();
+    assert!(delete_keys.contains(&image_cloud_key(&room_image)));
+    assert!(delete_keys.contains(&image_cloud_key(&thing_image)));
 }

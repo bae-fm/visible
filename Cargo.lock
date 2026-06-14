@@ -3857,7 +3857,12 @@ dependencies = [
 name = "visible-core"
 version = "0.0.0-dev"
 dependencies = [
+ "android-native-keyring-store",
+ "apple-native-keyring-store",
+ "chrono",
  "coven",
+ "hex",
+ "keyring-core",
  "serde_yaml",
  "tempfile",
  "thiserror 1.0.69",
