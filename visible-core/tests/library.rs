@@ -60,7 +60,7 @@ fn bootstrap_opens_the_created_library_with_its_root() {
         .runtime
         .block_on(app.inventory.root())
         .expect("root after bootstrap");
-    assert_eq!(root.name, "Place");
+    assert_eq!(root.name.as_deref(), Some("Place"));
     assert_eq!(root.parent_id, None);
 
     // The freshly created library has no children under the root yet.

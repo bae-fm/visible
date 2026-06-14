@@ -31,12 +31,16 @@ async fn seed_root(db: &Database, stamper: &UpdatedAtStamper) {
         .expect("seed root");
 }
 
+/// Small stand-in image bytes for tests that need a child but don't care about
+/// the image itself; every child is created photo-first.
+const DUMMY_IMAGE: &[u8] = b"img";
+
 #[tokio::test]
 async fn root_exists_after_create() {
     let (inv, _temp) = open_inventory().await;
     let root = inv.root().await.expect("root");
     assert_eq!(root.id, "root");
-    assert_eq!(root.name, "Home");
+    assert_eq!(root.name.as_deref(), Some("Home"));
     assert_eq!(root.parent_id, None);
     assert_eq!(root.position, 0);
 }
@@ -45,28 +49,46 @@ async fn root_exists_after_create() {
 async fn children_keep_insertion_order() {
     let (inv, _temp) = open_inventory().await;
 
-    let kitchen = inv.create_child("root", "Kitchen".into()).await.unwrap();
-    let bedroom = inv.create_child("root", "Bedroom".into()).await.unwrap();
-    let garage = inv.create_child("root", "Garage".into()).await.unwrap();
+    let first = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    let second = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    let third = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
 
-    assert_eq!(kitchen.position, 0);
-    assert_eq!(bedroom.position, 1);
-    assert_eq!(garage.position, 2);
+    assert_eq!(first.position, 0);
+    assert_eq!(second.position, 1);
+    assert_eq!(third.position, 2);
 
     let children = inv.children("root").await.unwrap();
-    let names: Vec<&str> = children.iter().map(|n| n.name.as_str()).collect();
-    assert_eq!(names, vec!["Kitchen", "Bedroom", "Garage"]);
+    let ids: Vec<&str> = children.iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![first.id.as_str(), second.id.as_str(), third.id.as_str()]
+    );
+    // A photo-first child is untitled until renamed.
+    assert!(children.iter().all(|n| n.name.is_none()));
 }
 
 #[tokio::test]
-async fn rename_changes_the_name() {
+async fn rename_titles_an_untitled_child() {
     let (inv, _temp) = open_inventory().await;
-    let node = inv.create_child("root", "Shelf".into()).await.unwrap();
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    assert_eq!(node.name, None);
 
     inv.rename(&node.id, "Bookshelf".into()).await.unwrap();
 
     let reloaded = inv.get(&node.id).await.unwrap().unwrap();
-    assert_eq!(reloaded.name, "Bookshelf");
+    assert_eq!(reloaded.name.as_deref(), Some("Bookshelf"));
 }
 
 #[tokio::test]
@@ -84,10 +106,16 @@ async fn delete_removes_subtree_and_its_image_files() {
     let (inv, _temp) = open_inventory().await;
 
     // root -> room -> box (with an image) -> thing (with an image)
-    let room = inv.create_child("root", "Room".into()).await.unwrap();
-    let container = inv.create_child(&room.id, "Box".into()).await.unwrap();
+    let room = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    let container = inv
+        .create_child_with_image(&room.id, DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
     let thing = inv
-        .create_child(&container.id, "Thing".into())
+        .create_child_with_image(&container.id, DUMMY_IMAGE.to_vec())
         .await
         .unwrap();
 
@@ -137,7 +165,10 @@ async fn delete_missing_node_is_not_found() {
 #[tokio::test]
 async fn delete_root_errors_and_leaves_the_tree_intact() {
     let (inv, _temp) = open_inventory().await;
-    let room = inv.create_child("root", "Room".into()).await.unwrap();
+    let room = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
 
     let err = inv.delete("root").await.unwrap_err();
     assert!(
@@ -156,7 +187,10 @@ async fn delete_root_errors_and_leaves_the_tree_intact() {
 #[tokio::test]
 async fn set_image_writes_then_replacing_removes_the_old_file() {
     let (inv, _temp) = open_inventory().await;
-    let node = inv.create_child("root", "Lamp".into()).await.unwrap();
+    let node = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
 
     inv.set_image(&node.id, b"first".to_vec()).await.unwrap();
     let first_image = inv.get(&node.id).await.unwrap().unwrap().image_id.unwrap();
@@ -182,11 +216,12 @@ async fn create_child_with_image_lands_node_and_file_together() {
     let (inv, _temp) = open_inventory().await;
 
     let node = inv
-        .create_child_with_image("root", "Toaster".into(), b"toaster-photo".to_vec())
+        .create_child_with_image("root", b"toaster-photo".to_vec())
         .await
         .unwrap();
 
-    assert_eq!(node.name, "Toaster");
+    // A photo-first child lands untitled.
+    assert_eq!(node.name, None);
     assert_eq!(node.parent_id.as_deref(), Some("root"));
     let image_id = node.image_id.expect("node carries an image id");
 
@@ -217,9 +252,18 @@ async fn set_image_on_missing_node_writes_nothing() {
 async fn path_to_returns_root_first_breadcrumb() {
     let (inv, _temp) = open_inventory().await;
 
-    let room = inv.create_child("root", "Room".into()).await.unwrap();
-    let container = inv.create_child(&room.id, "Drawer".into()).await.unwrap();
-    let thing = inv.create_child(&container.id, "Pen".into()).await.unwrap();
+    let room = inv
+        .create_child_with_image("root", DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    let container = inv
+        .create_child_with_image(&room.id, DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
+    let thing = inv
+        .create_child_with_image(&container.id, DUMMY_IMAGE.to_vec())
+        .await
+        .unwrap();
 
     let path = inv.path_to(&thing.id).await.unwrap();
     let ids: Vec<&str> = path.iter().map(|n| n.id.as_str()).collect();

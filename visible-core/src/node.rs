@@ -18,7 +18,10 @@ use crate::error::CoreError;
 pub struct Node {
     pub id: String,
     pub parent_id: Option<String>,
-    pub name: String,
+    /// The node's title, or `None` while it is untitled. A photo-first child
+    /// starts untitled (the photo is its identity) and stays so until renamed.
+    /// The root house is always titled.
+    pub name: Option<String>,
     pub position: i64,
     pub image_id: Option<String>,
 }
@@ -138,60 +141,19 @@ impl Inventory {
         Ok(path)
     }
 
-    /// Append a child to `parent_id` at the end of its sibling order. The new
-    /// node gets a fresh uuid and its `_updated_at` register stamp.
-    pub async fn create_child(&self, parent_id: &str, name: String) -> Result<Node, CoreError> {
-        let id = uuid::Uuid::new_v4().to_string();
-        let parent_id = parent_id.to_string();
-        let updated_at = self.stamper.stamp();
-        self.db
-            .call(move |conn| {
-                let position = next_position(conn, &parent_id)?;
-                conn.execute(
-                    "INSERT INTO nodes (id, parent_id, name, position, image_id, _updated_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![
-                        id,
-                        parent_id,
-                        name,
-                        position,
-                        Option::<String>::None,
-                        updated_at
-                    ],
-                )?;
-                Ok(Node {
-                    id,
-                    parent_id: Some(parent_id),
-                    name,
-                    position,
-                    image_id: None,
-                })
-            })
-            .await
-            .map_err(Into::into)
-    }
-
-    /// Append a child to `parent_id` carrying `bytes` as its one image, in a
-    /// single step that leaves no half-state. The image file is written first:
-    /// if that fails, no node is created. The node row is then inserted with its
-    /// `image_id` already set; if the insert fails, the just-written file is
-    /// unlinked. Either both the node row and its image file exist, or neither —
-    /// never a node with a missing image or an image with no node.
+    /// Append an untitled child to `parent_id` carrying `bytes` as its one image,
+    /// in a single step that leaves no half-state. The image file is written
+    /// first: if that fails, no node is created. The node row is then inserted
+    /// with its `image_id` already set and `name = NULL` (a photo-first child
+    /// starts untitled until renamed); if the insert fails, the just-written
+    /// file is unlinked. Either both the node row and its image file exist, or
+    /// neither — never a node with a missing image or an image with no node.
     pub async fn create_child_with_image(
         &self,
         parent_id: &str,
-        name: String,
         bytes: Vec<u8>,
     ) -> Result<Node, CoreError> {
-        let image_id = uuid::Uuid::new_v4().to_string();
-        let path = self.dir.image_path(&image_id);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                CoreError::Io(format!("creating image dir {}: {e}", parent.display()))
-            })?;
-        }
-        std::fs::write(&path, &bytes)
-            .map_err(|e| CoreError::Io(format!("writing image {}: {e}", path.display())))?;
+        let image_id = self.store_new_image(&bytes)?;
 
         let id = uuid::Uuid::new_v4().to_string();
         let parent_id = parent_id.to_string();
@@ -203,13 +165,13 @@ impl Inventory {
                 let position = next_position(conn, &parent_id)?;
                 conn.execute(
                     "INSERT INTO nodes (id, parent_id, name, position, image_id, _updated_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    params![id, parent_id, name, position, row_image_id, updated_at],
+                     VALUES (?1, ?2, NULL, ?3, ?4, ?5)",
+                    params![id, parent_id, position, row_image_id, updated_at],
                 )?;
                 Ok(Node {
                     id,
                     parent_id: Some(parent_id),
-                    name,
+                    name: None,
                     position,
                     image_id: Some(row_image_id),
                 })
@@ -223,7 +185,9 @@ impl Inventory {
         inserted.map_err(Into::into)
     }
 
-    /// Rename a node. NotFound if no row matched.
+    /// Rename a node, giving it a title (an untitled node becomes titled).
+    /// Rename always sets a name; it never clears one back to untitled. NotFound
+    /// if no row matched.
     pub async fn rename(&self, id: &str, name: String) -> Result<(), CoreError> {
         let updated_at = self.stamper.stamp();
         let id_for_update = id.to_string();
@@ -322,15 +286,7 @@ impl Inventory {
             .await?
             .ok_or_else(|| CoreError::NotFound(format!("no node {id} for set_image")))?;
 
-        let image_id = uuid::Uuid::new_v4().to_string();
-        let path = self.dir.image_path(&image_id);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                CoreError::Io(format!("creating image dir {}: {e}", parent.display()))
-            })?;
-        }
-        std::fs::write(&path, &bytes)
-            .map_err(|e| CoreError::Io(format!("writing image {}: {e}", path.display())))?;
+        let image_id = self.store_new_image(&bytes)?;
 
         let updated_at = self.stamper.stamp();
         let id = id.to_string();
@@ -374,6 +330,23 @@ impl Inventory {
         }
     }
 
+    /// Mint a fresh image id, ensure its directory exists, and write `bytes` to
+    /// the file at that id. Returns the new image id so the caller can point a
+    /// node row at it (and unlink the file if the row write then fails). The id
+    /// is fresh per call, so the file nothing references yet can't collide.
+    fn store_new_image(&self, bytes: &[u8]) -> Result<String, CoreError> {
+        let image_id = uuid::Uuid::new_v4().to_string();
+        let path = self.dir.image_path(&image_id);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                CoreError::Io(format!("creating image dir {}: {e}", parent.display()))
+            })?;
+        }
+        std::fs::write(&path, bytes)
+            .map_err(|e| CoreError::Io(format!("writing image {}: {e}", path.display())))?;
+        Ok(image_id)
+    }
+
     /// Best-effort unlink of an image file. A missing file is fine (already
     /// gone); any other failure is logged and skipped — the node row no longer
     /// references it, so a leftover file is harmless leakage, not a fault that
@@ -408,7 +381,7 @@ pub const SCHEMA: &str = "\
 CREATE TABLE IF NOT EXISTS nodes (
     id          TEXT PRIMARY KEY NOT NULL,
     parent_id   TEXT REFERENCES nodes(id) ON DELETE CASCADE,
-    name        TEXT NOT NULL,
+    name        TEXT,
     position    INTEGER NOT NULL,
     image_id    TEXT,
     _updated_at TEXT NOT NULL

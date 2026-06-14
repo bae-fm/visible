@@ -39,18 +39,9 @@ impl AppHandle {
         Ok(path.into_iter().map(BridgeNode::from).collect())
     }
 
-    pub fn create_node(&self, parent_id: String, name: String) -> Result<BridgeNode, BridgeError> {
-        Ok(self
-            .app
-            .runtime
-            .block_on(self.app.inventory.create_child(&parent_id, name))?
-            .into())
-    }
-
     pub fn create_node_with_image(
         &self,
         parent_id: String,
-        name: String,
         bytes: Vec<u8>,
     ) -> Result<BridgeNode, BridgeError> {
         Ok(self
@@ -59,7 +50,7 @@ impl AppHandle {
             .block_on(
                 self.app
                     .inventory
-                    .create_child_with_image(&parent_id, name, bytes),
+                    .create_child_with_image(&parent_id, bytes),
             )?
             .into())
     }

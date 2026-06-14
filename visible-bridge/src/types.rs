@@ -10,7 +10,9 @@ use visible_core::{CoreError, LibraryInfo, Node};
 pub struct BridgeNode {
     pub id: String,
     pub parent_id: Option<String>,
-    pub name: String,
+    /// The node's title, or `None` while it is untitled. The UI renders an
+    /// "Untitled" fallback for `None`.
+    pub name: Option<String>,
     pub image_id: Option<String>,
 }
 
