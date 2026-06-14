@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onPop: () -> Unit,
+    onOpenSharing: () -> Unit,
 ) {
     LaunchedEffect(viewModel) { viewModel.reload() }
 
@@ -66,6 +67,13 @@ fun SettingsScreen(
                 text = viewModel.statusLine,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            OutlinedButton(
+                onClick = onOpenSharing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Members & invites")
+            }
 
             S3Field(value = viewModel.bucket, onValueChange = { viewModel.bucket = it }, label = "Bucket")
             S3Field(value = viewModel.region, onValueChange = { viewModel.region = it }, label = "Region")
