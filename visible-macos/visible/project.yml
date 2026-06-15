@@ -31,6 +31,8 @@ targets:
       - path: ../../visible-ios/visible/visible/MovePickerView.swift
       - path: ../../visible-ios/visible/visible/SearchModel.swift
       - path: ../../visible-ios/visible/visible/SearchView.swift
+      - path: ../../visible-ios/visible/visible/TasksModel.swift
+      - path: ../../visible-ios/visible/visible/TasksView.swift
       - path: ../../visible-ios/visible/visible/SettingsModel.swift
       - path: ../../visible-ios/visible/visible/SettingsLogic.swift
       - path: ../../visible-ios/visible/visible/SettingsView.swift

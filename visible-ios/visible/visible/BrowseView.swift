@@ -20,6 +20,9 @@ struct BrowseView: View {
     // Open the sync settings screen. Only the root house passes this, so the gear
     // shows there and nowhere deeper; nil leaves the gear off.
     let onOpenSettings: (() -> Void)?
+    // Open the shared task list. Like settings, only the root house passes this —
+    // tasks are a home-level list, not per-node; nil leaves the button off.
+    let onOpenTasks: (() -> Void)?
 
     private let handle: AppHandle
 
@@ -49,7 +52,8 @@ struct BrowseView: View {
         onPop: @escaping () -> Void,
         onOpenDetail: @escaping (String) -> Void,
         onOpenSearch: @escaping () -> Void,
-        onOpenSettings: (() -> Void)? = nil
+        onOpenSettings: (() -> Void)? = nil,
+        onOpenTasks: (() -> Void)? = nil
     ) {
         self.handle = handle
         self.onOpenChild = onOpenChild
@@ -57,6 +61,7 @@ struct BrowseView: View {
         self.onOpenDetail = onOpenDetail
         self.onOpenSearch = onOpenSearch
         self.onOpenSettings = onOpenSettings
+        self.onOpenTasks = onOpenTasks
         _model = State(initialValue: BrowseModel(handle: handle, nodeId: nodeId))
     }
 
@@ -98,6 +103,15 @@ struct BrowseView: View {
                     ToolbarItem(placement: .primaryAction) {
                         Button(action: onOpenSearch) {
                             Image(systemName: "magnifyingglass")
+                        }
+                    }
+                    // The shared task list lives on the root house only (tasks are
+                    // a home-level list, not per-node).
+                    if let onOpenTasks {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: onOpenTasks) {
+                                Image(systemName: "checklist")
+                            }
                         }
                     }
                     // The sync gear lives on the root house only.

@@ -44,6 +44,7 @@ private struct BrowseNavigation: View {
     @State private var path: [String] = []
     @State private var showSettings = false
     @State private var showSearch = false
+    @State private var showTasks = false
     // The node whose detail edit screen is open, pushed onto the stack; nil while
     // no detail screen is shown. A node id rather than a Bool because the screen
     // edits a specific node.
@@ -58,7 +59,8 @@ private struct BrowseNavigation: View {
                 onPop: {},
                 onOpenDetail: { detailNodeId = $0 },
                 onOpenSearch: { showSearch = true },
-                onOpenSettings: { showSettings = true }
+                onOpenSettings: { showSettings = true },
+                onOpenTasks: { showTasks = true }
             )
             .navigationDestination(for: String.self) { nodeId in
                 BrowseView(
@@ -75,6 +77,9 @@ private struct BrowseNavigation: View {
             }
             .navigationDestination(isPresented: $showSearch) {
                 SearchView(handle: handle, onNavigate: navigate)
+            }
+            .navigationDestination(isPresented: $showTasks) {
+                TasksView(handle: handle)
             }
             .navigationDestination(item: $detailNodeId) { nodeId in
                 NodeDetailView(handle: handle, nodeId: nodeId)
