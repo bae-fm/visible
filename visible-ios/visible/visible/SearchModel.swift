@@ -91,6 +91,6 @@ final class SearchModel {
     /// The local file path for `imageId` if its file exists, else nil; the row's
     /// thumbnail calls it on the render path.
     func imagePath(_ imageId: String) -> String? {
-        visible.imagePath(handle, imageId)
+        ImagePath.resolve(handle, imageId)
     }
 }

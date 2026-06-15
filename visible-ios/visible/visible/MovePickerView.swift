@@ -58,14 +58,14 @@ struct MovePickerView: View {
                 .multilineTextAlignment(.center)
                 .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case let .loaded(_, children):
+        case let .loaded(children):
             loaded(children: children)
         }
     }
 
     private func loaded(children: [BridgeNode]) -> some View {
         VStack(spacing: 0) {
-            Breadcrumb(path: model.path, canGoUp: model.path.count > 1, onGoUp: { model.goUp() })
+            Breadcrumb(model: model)
 
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 16) {
@@ -96,14 +96,14 @@ struct MovePickerView: View {
 /// the current location. A Back chevron leads the trail and walks one level up;
 /// it is hidden at the root, where there is nowhere above to go.
 private struct Breadcrumb: View {
-    let path: [BridgeNode]
-    let canGoUp: Bool
-    let onGoUp: () -> Void
+    let model: MovePickerModel
 
     var body: some View {
+        let path = model.path
+        let canGoUp = path.count > 1
         HStack(spacing: 8) {
             if canGoUp {
-                Button(action: onGoUp) {
+                Button(action: { model.goUp() }) {
                     Image(systemName: "chevron.left")
                 }
                 .buttonStyle(.plain)

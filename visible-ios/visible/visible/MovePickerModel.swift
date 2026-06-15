@@ -8,9 +8,11 @@ private let logger = Logger.visible("MovePickerModel")
 enum MovePickerContent {
     case loading
     case failed(String)
-    /// The node currently shown and its children that are valid destinations
-    /// (the moving node is omitted — see ``MovePickerModel``).
-    case loaded(node: BridgeNode, children: [BridgeNode])
+    /// The children of the current location that are valid destinations (the
+    /// moving node is omitted — see ``MovePickerModel``). The current location
+    /// itself is the last element of ``MovePickerModel/path``, which drives the
+    /// breadcrumb and "Move here".
+    case loaded(children: [BridgeNode])
 }
 
 /// Drives the destination picker: a self-contained walk of the tree to choose a
@@ -97,7 +99,7 @@ final class MovePickerModel {
     /// The local file path for `imageId` if its file exists, else nil; the cards
     /// call it on the render path.
     func imagePath(_ imageId: String) -> String? {
-        visible.imagePath(handle, imageId)
+        ImagePath.resolve(handle, imageId)
     }
 
     /// Load the destination node and its children, landing a breadcrumb of
@@ -134,7 +136,7 @@ final class MovePickerModel {
                 content = .failed(message)
             case let .loaded(node, children):
                 path = prefix + [node]
-                content = .loaded(node: node, children: children)
+                content = .loaded(children: children)
             }
         }
     }

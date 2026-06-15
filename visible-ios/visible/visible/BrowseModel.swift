@@ -139,7 +139,7 @@ final class BrowseModel {
     /// The local file path for `imageId` if its file exists, else nil; the image
     /// views call it on the render path.
     func imagePath(_ imageId: String) -> String? {
-        visible.imagePath(handle, imageId)
+        ImagePath.resolve(handle, imageId)
     }
 
     /// Runs a bridge write off the main actor, then reloads to reflect the new

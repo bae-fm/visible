@@ -25,10 +25,12 @@ sealed interface MovePickerContent {
     data class Failed(val message: String) : MovePickerContent
 
     /**
-     * The node currently shown and its children that are valid destinations (the
-     * moving node is omitted — see [MovePickerViewModel]).
+     * The children of the current location that are valid destinations (the
+     * moving node is omitted — see [MovePickerViewModel]). The current location
+     * itself is the last element of [MovePickerViewModel.path], which drives the
+     * breadcrumb and "Move here".
      */
-    data class Loaded(val node: BridgeNode, val children: List<BridgeNode>) : MovePickerContent
+    data class Loaded(val children: List<BridgeNode>) : MovePickerContent
 }
 
 /**
@@ -147,7 +149,7 @@ class MovePickerViewModel(
                 is LoadOutcome.Failed -> content = MovePickerContent.Failed(outcome.message)
                 is LoadOutcome.Loaded -> {
                     path = prefix + outcome.node
-                    content = MovePickerContent.Loaded(outcome.node, outcome.children)
+                    content = MovePickerContent.Loaded(outcome.children)
                 }
             }
         }
