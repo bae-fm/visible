@@ -47,6 +47,7 @@ targets:
       - path: ../../visible-ios/visible/visible/NodeActionsMenu.swift
       - path: ../../visible-ios/visible/visible/NodeName.swift
       - path: ../../visible-ios/visible/visible/NodeImageView.swift
+      - path: ../../visible-ios/visible/visible/ImageLoader.swift
       - path: ../../visible-ios/visible/visible/ImagePath.swift
       - path: ../../visible-ios/visible/visible/Theme.swift
       - path: ../../visible-ios/visible/visible/Logger.swift

@@ -1,7 +1,4 @@
 import SwiftUI
-import os.log
-
-private let logger = Logger.visible("FullScreenImageView")
 
 /// A node's photo shown filling the screen, dismissed by a tap or a Done
 /// control. Loads the image at `path` off the main thread, the same decode the
@@ -22,7 +19,7 @@ struct FullScreenImageView: View {
             Color.black.ignoresSafeArea()
 
             if let image {
-                platformImage(image)
+                ImageLoader.image(image)
                     .resizable()
                     .scaledToFit()
             } else {
@@ -44,24 +41,9 @@ struct FullScreenImageView: View {
         .task(id: path) { await load() }
     }
 
-    private func platformImage(_ image: PlatformImage) -> Image {
-        #if os(macOS)
-        Image(nsImage: image)
-        #else
-        Image(uiImage: image)
-        #endif
-    }
-
     private func load() async {
-        let decoded = await Task.detached(priority: .userInitiated) {
-            PlatformImage(contentsOfFile: path)
-        }.value
+        let decoded = await ImageLoader.decode(path: path)
         if Task.isCancelled { return }
-        if decoded == nil {
-            // The path came from `imagePathIfExists`, so the file was present; a
-            // nil decode means its bytes aren't a valid image.
-            logger.warning("decoding image at \(path, privacy: .public) failed; showing the unloadable-photo message")
-        }
         image = decoded
     }
 }

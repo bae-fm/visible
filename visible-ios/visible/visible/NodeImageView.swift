@@ -1,13 +1,4 @@
 import SwiftUI
-import os.log
-
-private let logger = Logger.visible("NodeImageView")
-
-#if os(macOS)
-typealias PlatformImage = NSImage
-#else
-typealias PlatformImage = UIImage
-#endif
 
 /// A node's photo at `path`, clipped to a rounded square, or a neutral
 /// placeholder when `path` is nil (no image, or its file is missing). The path
@@ -22,7 +13,7 @@ struct NodeImageView: View {
     var body: some View {
         ZStack {
             if let image {
-                platformImage(image)
+                ImageLoader.image(image)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -41,28 +32,13 @@ struct NodeImageView: View {
         }
     }
 
-    private func platformImage(_ image: PlatformImage) -> Image {
-        #if os(macOS)
-        Image(nsImage: image)
-        #else
-        Image(uiImage: image)
-        #endif
-    }
-
     private func load() async {
         guard let path else {
             image = nil
             return
         }
-        let decoded = await Task.detached(priority: .userInitiated) {
-            PlatformImage(contentsOfFile: path)
-        }.value
+        let decoded = await ImageLoader.decode(path: path)
         if Task.isCancelled { return }
-        if decoded == nil {
-            // The path came from `imagePathIfExists`, so the file was present;
-            // a nil decode means its bytes aren't a valid image.
-            logger.warning("decoding image at \(path, privacy: .public) failed; showing placeholder")
-        }
         image = decoded
     }
 }
