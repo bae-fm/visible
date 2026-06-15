@@ -37,9 +37,6 @@ object NodeDetailLogic {
         return value
     }
 
-    /** A trimmed text field, or null when blank — the absence a cleared field means. */
-    fun blankToNull(text: String): String? = text.trim().ifEmpty { null }
-
     /** Cents → a dollars string with two decimal places (form-seeding). */
     fun dollarsFromCents(cents: Long): String =
         BigDecimal(cents).movePointLeft(2).toPlainString()

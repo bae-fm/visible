@@ -41,11 +41,6 @@ final class NodeDetailLogicTests: XCTestCase {
         XCTAssertNil(NodeDetailLogic.int64(from: "abc"))
     }
 
-    func testBlankToNilTrimsAndDropsBlanks() {
-        XCTAssertEqual(NodeDetailLogic.blankToNil("  note  "), "note")
-        XCTAssertNil(NodeDetailLogic.blankToNil("   "))
-    }
-
     func testDateIsoRoundTrip() throws {
         let iso = "2024-01-02"
         let date = try XCTUnwrap(NodeDetailLogic.dateFromIso(iso))

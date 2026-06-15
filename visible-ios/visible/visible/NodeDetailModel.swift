@@ -30,8 +30,8 @@ final class NodeDetailModel {
 
     private(set) var content: NodeDetailContent = .loading
 
-    // The editable form fields, seeded from the loaded detail. Blank text fields
-    // map to absence on save (the model trims, core also normalizes).
+    // The editable form fields, seeded from the loaded detail. A blank text
+    // field maps to absence on save — core trims and normalizes it.
     var quantity = ""
     var valueDollars = ""
     var acquiredDate: Date?
@@ -99,8 +99,8 @@ final class NodeDetailModel {
 
     /// Save the form's attributes. Quantity and value parse from their editable
     /// strings (value dollars → cents); the acquired date renders back to the ISO
-    /// string; blank text fields map to nil (the model trims, core also
-    /// normalizes). Reloads after the write so the form reflects the stored state.
+    /// string; the text fields pass through raw and core maps a blank one to
+    /// absence. Reloads after the write so the form reflects the stored state.
     func save() {
         let attributes = formAttributes()
         errorMessage = nil
@@ -170,15 +170,17 @@ final class NodeDetailModel {
     }
 
     /// The form fields parsed back into the stored attribute shape: quantity and
-    /// value from their editable strings, the date back to ISO, blank text to nil.
+    /// value from their editable strings, the date back to ISO. The text fields
+    /// pass through raw — core's `set_attributes` trims them and maps a blank one
+    /// to absence, so the form doesn't repeat that shaping here.
     private func formAttributes() -> NodeAttributes {
         NodeAttributes(
             quantity: NodeDetailLogic.int64(from: quantity),
-            notes: NodeDetailLogic.blankToNil(notes),
+            notes: notes,
             valueCents: NodeDetailLogic.cents(fromDollars: valueDollars),
             acquiredAt: acquiredDate.map(NodeDetailLogic.isoFromDate),
-            serial: NodeDetailLogic.blankToNil(serial),
-            barcode: NodeDetailLogic.blankToNil(barcode)
+            serial: serial,
+            barcode: barcode
         )
     }
 }

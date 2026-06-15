@@ -129,16 +129,18 @@ class NodeDetailViewModel(
     /**
      * Save the form's attributes. Quantity and value parse from their editable
      * strings (value dollars → cents); the acquired date renders back to the ISO
-     * string; blank text fields map to null (the view model trims, core also
-     * normalizes). Reloads after the write so the form reflects the stored state.
+     * string; the text fields pass through raw and core maps a blank one to
+     * absence. Reloads after the write so the form reflects the stored state.
      */
     fun save() {
         val quantity = NodeDetailLogic.quantityFromText(quantity)
         val valueCents = NodeDetailLogic.centsFromDollars(valueDollars)
         val acquiredAt = acquiredDateMillis?.let(NodeDetailLogic::isoFromMillis)
-        val notes = NodeDetailLogic.blankToNull(notes)
-        val serial = NodeDetailLogic.blankToNull(serial)
-        val barcode = NodeDetailLogic.blankToNull(barcode)
+        // The text fields pass through raw — core's set_attributes trims them and
+        // maps a blank one to absence, so the view model doesn't repeat that.
+        val notes = notes
+        val serial = serial
+        val barcode = barcode
 
         errorMessage = null
         working = true

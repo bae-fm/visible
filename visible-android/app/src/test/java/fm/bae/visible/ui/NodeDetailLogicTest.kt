@@ -55,12 +55,6 @@ class NodeDetailLogicTest {
     }
 
     @Test
-    fun blankToNullTrimsAndDropsBlanks() {
-        assertEquals("note", NodeDetailLogic.blankToNull("  note  "))
-        assertNull(NodeDetailLogic.blankToNull("   "))
-    }
-
-    @Test
     fun isoAndMillisRoundTrip() {
         val iso = "2024-01-02"
         val millis = NodeDetailLogic.millisFromIso(iso)!!

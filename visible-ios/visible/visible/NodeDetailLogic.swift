@@ -34,12 +34,6 @@ enum NodeDetailLogic {
         isoDate.string(from: date)
     }
 
-    /// A trimmed text field, or nil when blank — the absence a cleared field means.
-    static func blankToNil(_ text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     /// Parse a whole-number string into `Int64?`. Blank is nil (a cleared field,
     /// the form-seeding exemption). A non-blank string that doesn't parse is also
     /// nil, but that's a dropped value on the save path, so it's logged.
