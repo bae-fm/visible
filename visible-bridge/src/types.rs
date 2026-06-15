@@ -39,18 +39,17 @@ impl From<Node> for BridgeNode {
     }
 }
 
-/// A node with all of its editable attributes and tags, for the edit screen.
-/// The edit form seeds its fields from these and writes them back through
-/// `update_node_attributes` / `add_node_tag` / `remove_node_tag`. Values stay in
-/// their stored form — `value_cents` in cents, `acquired_at` as the ISO
-/// `YYYY-MM-DD` string — and the form converts to its editable representation
-/// (dollars, a date picker) on the model, not across this boundary.
+/// A node's editable attributes and tags, for the edit screen. The form seeds
+/// its fields from these and writes them back through `update_node_attributes` /
+/// `add_node_tag` / `remove_node_tag`; the node's identity (the id it edits) and
+/// structural fields (name, parent, image) come from the navigation route and
+/// the browse list, not from here, so this record carries only what the form
+/// reads. Values stay in their stored form — `value_cents` in cents,
+/// `acquired_at` as the ISO `YYYY-MM-DD` string — and the form converts to its
+/// editable representation (dollars, a date picker) on the model, not across
+/// this boundary.
 #[derive(uniffi::Record)]
 pub struct BridgeNodeDetail {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub name: Option<String>,
-    pub image_id: Option<String>,
     pub quantity: Option<i64>,
     pub notes: Option<String>,
     pub value_cents: Option<i64>,
@@ -64,10 +63,6 @@ impl From<NodeDetail> for BridgeNodeDetail {
     fn from(detail: NodeDetail) -> Self {
         let node = detail.node;
         Self {
-            id: node.id,
-            parent_id: node.parent_id,
-            name: node.name,
-            image_id: node.image_id,
             quantity: node.quantity,
             notes: node.notes,
             value_cents: node.value_cents,
@@ -346,10 +341,6 @@ mod tests {
             tags: vec!["fragile".into(), "blue".into()],
         };
         let bridge = BridgeNodeDetail::from(detail);
-        assert_eq!(bridge.id, "node-1");
-        assert_eq!(bridge.parent_id.as_deref(), Some("parent-1"));
-        assert_eq!(bridge.name.as_deref(), Some("Lamp"));
-        assert_eq!(bridge.image_id.as_deref(), Some("img-1"));
         assert_eq!(bridge.quantity, Some(2));
         assert_eq!(bridge.notes.as_deref(), Some("a note"));
         assert_eq!(bridge.value_cents, Some(1299));
