@@ -4,7 +4,7 @@
 
 use visible_core::{
     CoreError, LibraryInfo, Member, MemberRole, Node, NodeDetail, OutboxSnapshot, S3ConfigData,
-    SearchHit, SyncStatusInfo,
+    SearchHit, SyncStatusInfo, Task,
 };
 
 /// A node as the browse list consumes it. No `position` — the bridge returns
@@ -70,6 +70,26 @@ impl From<NodeDetail> for BridgeNodeDetail {
             serial: node.serial,
             barcode: node.barcode,
             tags: detail.tags,
+        }
+    }
+}
+
+/// One task on the shared list, for the tasks screen: its id, title, and whether
+/// it's checked off. `created_at` stays in core (it only orders the list, which
+/// core does), so it doesn't cross the boundary.
+#[derive(uniffi::Record)]
+pub struct BridgeTask {
+    pub id: String,
+    pub title: String,
+    pub done: bool,
+}
+
+impl From<Task> for BridgeTask {
+    fn from(task: Task) -> Self {
+        Self {
+            id: task.id,
+            title: task.title,
+            done: task.done,
         }
     }
 }
@@ -267,6 +287,19 @@ mod tests {
         });
         assert_eq!(bridge.id, "lib-1");
         assert_eq!(bridge.name, "Home");
+    }
+
+    #[test]
+    fn task_passes_id_title_and_done_through_and_drops_created_at() {
+        let bridge = BridgeTask::from(Task {
+            id: "task-1".into(),
+            title: "Buy paper towels".into(),
+            done: true,
+            created_at: "2024-01-02T03:04:05+00:00".into(),
+        });
+        assert_eq!(bridge.id, "task-1");
+        assert_eq!(bridge.title, "Buy paper towels");
+        assert!(bridge.done);
     }
 
     /// A node with every field set, so a conversion test can assert each one

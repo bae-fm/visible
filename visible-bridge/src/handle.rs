@@ -7,7 +7,7 @@ use visible_core::RunningApp;
 
 use crate::types::{
     BridgeError, BridgeMember, BridgeMemberRole, BridgeNode, BridgeNodeDetail,
-    BridgeOutboxSnapshot, BridgeS3Config, BridgeSearchResult, BridgeSyncStatus,
+    BridgeOutboxSnapshot, BridgeS3Config, BridgeSearchResult, BridgeSyncStatus, BridgeTask,
 };
 
 #[derive(uniffi::Object)]
@@ -156,6 +156,45 @@ impl AppHandle {
 
     pub fn image_path_if_exists(&self, image_id: String) -> Option<String> {
         self.app.inventory.image_path_if_exists(&image_id)
+    }
+
+    /// The shared task list, open tasks first. Synced across the home's members,
+    /// so this returns whatever the latest sync has merged in.
+    pub fn tasks(&self) -> Result<Vec<BridgeTask>, BridgeError> {
+        let tasks = self.app.runtime.block_on(self.app.tasks.list())?;
+        Ok(tasks.into_iter().map(BridgeTask::from).collect())
+    }
+
+    /// Add a task to the shared list. The title is trimmed; a blank one is
+    /// rejected (the add control is disabled while the field is blank).
+    pub fn create_task(&self, title: String) -> Result<BridgeTask, BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.tasks.create(title))?
+            .into())
+    }
+
+    /// Check a task off, or back on. NotFound if the task doesn't exist.
+    pub fn set_task_done(&self, id: String, done: bool) -> Result<(), BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.tasks.set_done(&id, done))?)
+    }
+
+    /// Rename a task. The title is trimmed; a blank one is rejected. NotFound if
+    /// the task doesn't exist.
+    pub fn rename_task(&self, id: String, title: String) -> Result<(), BridgeError> {
+        Ok(self
+            .app
+            .runtime
+            .block_on(self.app.tasks.rename(&id, title))?)
+    }
+
+    /// Remove a task from the shared list. A task already gone is a no-op.
+    pub fn delete_task(&self, id: String) -> Result<(), BridgeError> {
+        Ok(self.app.runtime.block_on(self.app.tasks.delete(&id))?)
     }
 
     /// Connect an S3 cloud home: probe, persist credentials + config, mint the
