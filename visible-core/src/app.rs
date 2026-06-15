@@ -19,40 +19,47 @@ use crate::error::CoreError;
 use crate::library::open_config;
 use crate::node::{Inventory, SCHEMA};
 use crate::sync::Sync;
+use crate::task::Tasks;
 
 /// A fully opened library: the tokio runtime the bridge blocks on for database
-/// and sync calls, the live node-tree service, and the cloud-sync service.
+/// and sync calls, the live node-tree service, the shared task list, and the
+/// cloud-sync service.
 pub struct RunningApp {
     pub runtime: tokio::runtime::Runtime,
     pub inventory: Inventory,
+    pub tasks: Tasks,
     pub sync: Arc<Sync>,
 }
 
 /// The host synced tables every visible library carries: the node tree, the
 /// immutable image-blob rows (`node_images` carries the image blobs, see
-/// [`crate::blob_plan`]), and the per-node tags (`node_tags`, a plain synced
-/// table with no blob). The single source for both opening a library
-/// ([`open_database`]) and joining/restoring one ([`crate::share`]), so the
-/// schema contract can't drift between the two. coven injects its own `item_keys`.
+/// [`crate::blob_plan`]), the per-node tags (`node_tags`, a plain synced table
+/// with no blob), and the shared task list (`tasks`, likewise a plain synced
+/// table — syncing it is what makes the list collaborative across members). The
+/// single source for both opening a library ([`open_database`]) and
+/// joining/restoring one ([`crate::share`]), so the schema contract can't drift
+/// between the two. coven injects its own `item_keys`.
 pub(crate) fn synced_tables() -> Vec<SyncedTable> {
     vec![
         SyncedTable::new("nodes"),
         SyncedTable::new("node_images"),
         SyncedTable::new("node_tags"),
+        SyncedTable::new("tasks"),
     ]
 }
 
 /// Open the coven database for one library and run the schema. coven owns the
 /// connection: [`Database::open`] runs its bookkeeping migration, then the schema
-/// ([`SCHEMA`] creates `nodes`, `node_images`, and `node_tags`), seeds the
-/// `_updated_at` register off the rows on disk, and hands back the non-optional
-/// stamper every node write binds.
+/// (the node [`SCHEMA`] creates `nodes`, `node_images`, and `node_tags`; the task
+/// schema creates `tasks`), seeds the `_updated_at` register off the rows on
+/// disk, and hands back the non-optional stamper every write binds.
 pub fn open_database(
     library_dir: &LibraryDir,
     device_id: String,
 ) -> Result<(Database, UpdatedAtStamper), CoreError> {
     Database::open(&library_dir.db_path(), synced_tables(), device_id, |conn| {
-        conn.execute_batch(SCHEMA).map_err(Into::into)
+        conn.execute_batch(SCHEMA)?;
+        conn.execute_batch(crate::task::SCHEMA).map_err(Into::into)
     })
     .map_err(Into::into)
 }
@@ -116,11 +123,13 @@ fn bootstrap_inner(
 
     let inventory = Inventory::new(
         db.clone(),
-        stamper,
+        stamper.clone(),
         config.library_dir.clone(),
-        ids,
+        ids.clone(),
         clock.clone(),
     );
+
+    let tasks = Tasks::new(db.clone(), stamper, ids, clock.clone());
 
     let key_service = KeyService::new(config.library_id.clone());
 
@@ -153,6 +162,7 @@ fn bootstrap_inner(
     Ok(RunningApp {
         runtime,
         inventory,
+        tasks,
         sync,
     })
 }

@@ -13,6 +13,7 @@ pub mod library;
 pub mod node;
 pub mod share;
 pub mod sync;
+pub mod task;
 
 pub use app::RunningApp;
 pub use config::init_keyring;
@@ -21,3 +22,4 @@ pub use library::LibraryInfo;
 pub use node::{Inventory, Node, NodeDetail, SearchHit};
 pub use share::{join_shared_library, remove_library, restore_shared_library, user_identity_code};
 pub use sync::{Member, MemberRole, OutboxSnapshot, S3ConfigData, Sync, SyncStatusInfo};
+pub use task::{Task, Tasks};
