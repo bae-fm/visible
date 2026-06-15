@@ -32,23 +32,20 @@ struct WelcomeView: View {
                 }
 
                 Section("Join a home") {
-                    TextField("Paste an invite code", text: $model.joinInviteCode)
-                        .textFieldStyle(.roundedBorder)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        #endif
-                    Button("Join home") { model.joinHome() }
-                        .disabled(model.working)
-
-                    TextField("Paste a restore code", text: $model.restoreInputCode)
-                        .textFieldStyle(.roundedBorder)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        #endif
-                    Button("Restore home") { model.restoreHome() }
-                        .disabled(model.working)
+                    CodeEntryRow(
+                        placeholder: "Paste an invite code",
+                        code: $model.joinInviteCode,
+                        buttonLabel: "Join home",
+                        isWorking: model.working,
+                        action: { model.joinHome() }
+                    )
+                    CodeEntryRow(
+                        placeholder: "Paste a restore code",
+                        code: $model.restoreInputCode,
+                        buttonLabel: "Restore home",
+                        isWorking: model.working,
+                        action: { model.restoreHome() }
+                    )
                 }
 
                 Section("This device") {
@@ -78,5 +75,27 @@ struct WelcomeView: View {
             .task { model.reload() }
         }
         .tint(Theme.accent)
+    }
+}
+
+/// A paste-a-code field and its submit button. The join and restore rows are the
+/// same shape, differing only in their placeholder, bound field, button label,
+/// and action.
+private struct CodeEntryRow: View {
+    let placeholder: String
+    @Binding var code: String
+    let buttonLabel: String
+    let isWorking: Bool
+    let action: () -> Void
+
+    var body: some View {
+        TextField(placeholder, text: $code)
+            .textFieldStyle(.roundedBorder)
+            #if os(iOS)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            #endif
+        Button(buttonLabel, action: action)
+            .disabled(isWorking)
     }
 }

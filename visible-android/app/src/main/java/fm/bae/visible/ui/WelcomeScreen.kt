@@ -86,43 +86,55 @@ private fun CreateSection(viewModel: WelcomeViewModel) {
 @Composable
 private fun JoinSection(viewModel: WelcomeViewModel) {
     SectionColumn("Join a home") {
-        OutlinedTextField(
+        CodeEntryField(
             value = viewModel.joinInviteCode,
             onValueChange = { viewModel.joinInviteCode = it },
-            label = { Text("Paste an invite code") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.None,
-                autoCorrectEnabled = false,
-            ),
-            modifier = Modifier.fillMaxWidth(),
+            label = "Paste an invite code",
+            buttonLabel = "Join home",
+            isWorking = viewModel.working,
+            onSubmit = viewModel::joinHome,
         )
-        OutlinedButton(
-            onClick = viewModel::joinHome,
-            enabled = !viewModel.working,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Join home")
-        }
-
-        OutlinedTextField(
+        CodeEntryField(
             value = viewModel.restoreInputCode,
             onValueChange = { viewModel.restoreInputCode = it },
-            label = { Text("Paste a restore code") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.None,
-                autoCorrectEnabled = false,
-            ),
-            modifier = Modifier.fillMaxWidth(),
+            label = "Paste a restore code",
+            buttonLabel = "Restore home",
+            isWorking = viewModel.working,
+            onSubmit = viewModel::restoreHome,
         )
-        OutlinedButton(
-            onClick = viewModel::restoreHome,
-            enabled = !viewModel.working,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Restore home")
-        }
+    }
+}
+
+/**
+ * A paste-a-code field and its submit button. The invite and restore rows are the
+ * same shape, differing only in their label, bound field, button label, and action.
+ */
+@Composable
+private fun CodeEntryField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    buttonLabel: String,
+    isWorking: Boolean,
+    onSubmit: () -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(
+            capitalization = KeyboardCapitalization.None,
+            autoCorrectEnabled = false,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    OutlinedButton(
+        onClick = onSubmit,
+        enabled = !isWorking,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(buttonLabel)
     }
 }
 
