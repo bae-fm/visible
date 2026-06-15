@@ -129,6 +129,14 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         GENERATE_INFOPLIST_FILE: "YES"
 schemes:
+  # The app scheme, so the app is runnable in Xcode and via visible-macos/run.sh
+  # (xcodegen generates only the schemes listed here, so the app needs its own).
+  visible:
+    build:
+      targets:
+        visible: all
+    run:
+      config: Debug
   visibleTests:
     build:
       targets:
