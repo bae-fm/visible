@@ -111,6 +111,19 @@ pub struct NodeDetail {
 const NODE_COLUMNS: &str =
     "id, parent_id, name, position, image_id, quantity, notes, value_cents, acquired_at, serial, barcode";
 
+/// The recursive CTE that enumerates a node's whole subtree by id: the node at
+/// `?1` plus every descendant reached by walking `parent_id` downward. Both the
+/// delete cleanup ([`Inventory::delete`], collecting the subtree's image rows)
+/// and the move cycle-check ([`Inventory::move_node`], rejecting a move into the
+/// node's own subtree) prepend this to their own tail SELECT, so the descendant
+/// walk is defined in one place.
+const SUBTREE_CTE: &str = "\
+WITH RECURSIVE subtree(id) AS (
+    SELECT id FROM nodes WHERE id = ?1
+    UNION ALL
+    SELECT n.id FROM nodes n JOIN subtree s ON n.parent_id = s.id
+)";
+
 /// The placeholder a search breadcrumb shows for an untitled ancestor, matching
 /// the UI's untitled placeholder so a `path_label` reads the same as the rest of
 /// the app.
@@ -536,14 +549,10 @@ impl Inventory {
                         // is the node being deleted. These ids drive the cloud
                         // deletes and on-disk unlinks below; the rows themselves
                         // cascade off the node DELETE.
-                        let mut stmt = conn.prepare(
-                            "WITH RECURSIVE subtree(id) AS (
-                                 SELECT id FROM nodes WHERE id = ?1
-                                 UNION ALL
-                                 SELECT n.id FROM nodes n JOIN subtree s ON n.parent_id = s.id
-                             )
+                        let mut stmt = conn.prepare(&format!(
+                            "{SUBTREE_CTE} \
                              SELECT ni.id FROM node_images ni JOIN subtree s ON ni.node_id = s.id",
-                        )?;
+                        ))?;
                         let image_ids = stmt
                             .query_map([&id_owned], |r| r.get::<_, String>(0))?
                             .collect::<coven::rusqlite::Result<Vec<_>>>()?;
@@ -641,12 +650,7 @@ impl Inventory {
                 // the branch and create a cycle.
                 let destination_in_subtree = conn
                     .query_row(
-                        "WITH RECURSIVE subtree(id) AS (
-                             SELECT id FROM nodes WHERE id = ?1
-                             UNION ALL
-                             SELECT n.id FROM nodes n JOIN subtree s ON n.parent_id = s.id
-                         )
-                         SELECT 1 FROM subtree WHERE id = ?2",
+                        &format!("{SUBTREE_CTE} SELECT 1 FROM subtree WHERE id = ?2"),
                         params![&id_owned, &new_parent_owned],
                         |_| Ok(()),
                     )
