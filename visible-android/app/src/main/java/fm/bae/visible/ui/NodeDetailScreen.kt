@@ -42,9 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 
 /**
  * The node-detail edit screen: a form of the node's attributes (quantity, value,
@@ -186,7 +183,7 @@ private fun AcquiredDateField(
         onClick = { showPicker = true },
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(if (millis != null) "Acquired: ${formatDate(millis)}" else "Add acquired date")
+        Text(if (millis != null) "Acquired: ${NodeDetailLogic.isoFromMillis(millis)}" else "Add acquired date")
     }
     if (millis != null) {
         TextButton(onClick = onClear) { Text("Clear date") }
@@ -212,11 +209,6 @@ private fun AcquiredDateField(
         }
     }
 }
-
-/** A label for the picked date, in the same ISO `YYYY-MM-DD` shape it is stored. */
-private fun formatDate(millis: Long): String =
-    Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
-        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
 
 /** The tag editor: a wrapping row of removable chips plus a field to add one. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
