@@ -4,18 +4,22 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
 import java.io.File
 
 /**
@@ -37,11 +41,24 @@ fun FullScreenImage(path: String, onDismiss: () -> Unit) {
                 .clickable(onClick = onDismiss),
             contentAlignment = Alignment.Center,
         ) {
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = File(path),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
+                // The path came from imagePathIfExists, so the file is present; a
+                // decode failure means its bytes aren't a valid image. Show a
+                // message rather than a blank screen, matching iOS.
+                error = {
+                    Text(
+                        "This photo couldn't be loaded.",
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp),
+                    )
+                },
             )
             IconButton(
                 onClick = onDismiss,
