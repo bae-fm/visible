@@ -76,12 +76,7 @@ struct NodeDetailView: View {
             }
 
             Section("Tags") {
-                TagEditor(
-                    tags: model.tags,
-                    newTag: $model.newTag,
-                    onAdd: { model.addTag() },
-                    onRemove: { model.removeTag($0) }
-                )
+                TagEditor(model: model)
             }
 
             if let error = model.errorMessage {
@@ -117,29 +112,29 @@ private struct AcquiredDateRow: View {
 }
 
 /// The tag editor: a wrapping list of removable chips plus a field to add one.
+/// Reads the tag list and new-tag field off the model directly (the field it
+/// needs at the leaf, not handed down from the form), and calls back into the
+/// model to add and remove.
 private struct TagEditor: View {
-    let tags: [String]
-    @Binding var newTag: String
-    let onAdd: () -> Void
-    let onRemove: (String) -> Void
+    @Bindable var model: NodeDetailModel
 
     private var trimmedNew: String {
-        newTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        model.newTag.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     var body: some View {
-        if !tags.isEmpty {
-            TagChips(tags: tags, onRemove: onRemove)
+        if !model.tags.isEmpty {
+            TagChips(tags: model.tags, onRemove: { model.removeTag($0) })
         }
         HStack {
-            TextField("Add a tag", text: $newTag)
+            TextField("Add a tag", text: $model.newTag)
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 #endif
                 .submitLabel(.done)
-                .onSubmit { if !trimmedNew.isEmpty { onAdd() } }
-            Button("Add", action: onAdd)
+                .onSubmit { if !trimmedNew.isEmpty { model.addTag() } }
+            Button("Add") { model.addTag() }
                 .disabled(trimmedNew.isEmpty)
         }
     }
