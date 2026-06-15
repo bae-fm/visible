@@ -1,5 +1,3 @@
-import Foundation
-
 /// The pure role-to-label derivation behind ``SharingModel``, with no
 /// `AppHandle` or `@Observable` state. The model delegates here so the labels
 /// are exercised directly.
