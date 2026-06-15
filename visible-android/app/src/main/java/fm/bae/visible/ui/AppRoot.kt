@@ -42,6 +42,7 @@ private const val ROUTE_MOVE = "move/{$ARG_MOVING_ID}"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_SHARING = "sharing"
 private const val ROUTE_SEARCH = "search"
+private const val ROUTE_TASKS = "tasks"
 
 private fun browseRoute(nodeId: String) = "browse/$nodeId"
 
@@ -153,9 +154,15 @@ private fun BrowseNavigation(
                     onOpenDetail = { detailId -> navController.navigate(nodeDetailRoute(detailId)) },
                     onOpenMove = { movingId -> navController.navigate(moveRoute(movingId)) },
                     onOpenSearch = { navController.navigate(ROUTE_SEARCH) },
-                    // The sync gear lives on the root house only.
+                    // The sync gear and the shared task list live on the root
+                    // house only (tasks are a home-level list, not per-node).
                     onOpenSettings = if (nodeId == rootId) {
                         { navController.navigate(ROUTE_SETTINGS) }
+                    } else {
+                        null
+                    },
+                    onOpenTasks = if (nodeId == rootId) {
+                        { navController.navigate(ROUTE_TASKS) }
                     } else {
                         null
                     },
@@ -209,6 +216,17 @@ private fun BrowseNavigation(
                     onNavigate = { breadcrumb ->
                         navigateToBreadcrumb(navController, rootId, breadcrumb)
                     },
+                )
+            }
+            composable(route = ROUTE_TASKS) {
+                val viewModel: TasksViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer { TasksViewModel(handle) }
+                    },
+                )
+                TasksScreen(
+                    viewModel = viewModel,
+                    onPop = { navController.popBackStack() },
                 )
             }
             composable(route = ROUTE_SETTINGS) {

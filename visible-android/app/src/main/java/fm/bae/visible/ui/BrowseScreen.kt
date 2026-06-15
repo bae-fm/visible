@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -61,6 +62,9 @@ fun BrowseScreen(
     // Open the sync settings screen. Only the root house passes this, so the gear
     // shows there and nowhere deeper; null leaves the gear off.
     onOpenSettings: (() -> Unit)? = null,
+    // Open the shared task list. Like settings, only the root house passes this —
+    // tasks are a home-level list, not per-node; null leaves the button off.
+    onOpenTasks: (() -> Unit)? = null,
 ) {
     val content = viewModel.content
     // Photo capture sites. The + adds a new child carrying a captured photo. This
@@ -121,6 +125,13 @@ fun BrowseScreen(
                             onMove = { onOpenMove(loaded.node.id) },
                             onDelete = { viewModel.openDelete(loaded.node) },
                         )
+                        // The shared task list lives on the root house only (tasks
+                        // are a home-level list, not per-node).
+                        if (onOpenTasks != null) {
+                            IconButton(onClick = onOpenTasks) {
+                                Icon(Icons.Filled.Checklist, contentDescription = "Tasks")
+                            }
+                        }
                         // The sync gear lives on the root house only.
                         if (onOpenSettings != null) {
                             IconButton(onClick = onOpenSettings) {
