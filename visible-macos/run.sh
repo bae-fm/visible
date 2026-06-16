@@ -41,7 +41,10 @@ else
 fi
 
 cd visible-macos/visible && xcodegen generate && cd ../..
-xcodebuild -project visible-macos/visible/visible.xcodeproj -scheme visible -configuration "$CONFIG" -derivedDataPath build build
+# -allowProvisioningUpdates lets automatic signing create/refresh the managed
+# provisioning profile (carrying the keychain-access-group + sandbox entitlements)
+# the first time, so a fresh checkout builds without opening Xcode by hand.
+xcodebuild -project visible-macos/visible/visible.xcodeproj -scheme visible -configuration "$CONFIG" -derivedDataPath build -allowProvisioningUpdates build
 
 if [[ "$OPEN" == true ]]; then
     open "build/Build/Products/$CONFIG/visible.app"

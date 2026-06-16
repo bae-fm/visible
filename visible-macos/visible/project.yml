@@ -91,6 +91,13 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fm.bae.visible.desktop
+        # Automatic signing with the developer team so the data-protection
+        # keychain (coven's apple-native-keyring-store "protected" backend) is
+        # reachable: it requires the keychain-access-groups entitlement, whose
+        # $(AppIdentifierPrefix) only resolves when the app is team-signed.
+        # CI builds pass CODE_SIGNING_ALLOWED=NO, so the team is irrelevant there.
+        DEVELOPMENT_TEAM: BTNNN8533W
+        CODE_SIGN_STYLE: Automatic
         PRODUCT_NAME: visible
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: 1
