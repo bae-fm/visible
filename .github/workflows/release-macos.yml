@@ -110,7 +110,10 @@ jobs:
       env:
         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       run: |
-        IDENTITY=$(security find-identity -v -p codesigning | grep "$APPLE_TEAM_ID" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        # Pick the Developer ID Application identity (the one for direct
+        # distribution); the imported keychain may also hold an Apple Development
+        # cert under the same team, so match on the cert kind, not just the team.
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
         echo "Signing with: $IDENTITY"
         # Expand $(AppIdentifierPrefix) so the keychain-access-group resolves to
         # the team-prefixed group (what the data-protection keychain requires).
@@ -123,7 +126,7 @@ jobs:
       env:
         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       run: |
-        IDENTITY=$(security find-identity -v -p codesigning | grep "$APPLE_TEAM_ID" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
         mkdir -p target
         DMG_TEMP=$(mktemp -d)
         trap "rm -rf $DMG_TEMP" EXIT
@@ -138,6 +141,14 @@ jobs:
         APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       run: |
+        # Notarization is optional: with no Apple-ID app password the DMG still
+        # ships, Developer-ID-signed (the keychain works), just not stapled —
+        # Gatekeeper then asks the user to confirm on first open. Add APPLE_ID +
+        # APPLE_APP_PASSWORD to notarize and clear that prompt.
+        if [[ -z "$APPLE_ID" || -z "$APPLE_APP_PASSWORD" ]]; then
+          echo "::warning::APPLE_ID / APPLE_APP_PASSWORD not set — shipping a signed but un-notarized DMG."
+          exit 0
+        fi
         xcrun notarytool submit "target/visible-macos.dmg" \
           --apple-id "$APPLE_ID" \
           --password "$APPLE_APP_PASSWORD" \
