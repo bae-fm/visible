@@ -1,0 +1,174 @@
+name: Release macOS
+
+# Cuts a Developer-ID-signed, notarized macOS DMG: a 0.N version line (macos-v*
+# tags) and a monotonic build number (the run number). Builds the app unsigned,
+# then signs it with the Developer ID certificate and notarizes the DMG, so it
+# launches without Gatekeeper warnings and the data-protection keychain (coven's
+# keyring) works. Manual (workflow_dispatch).
+#
+# Requires these repo secrets (the same Apple Developer credentials bae uses):
+#   APPLE_CERTIFICATE            base64 of the Developer ID Application .p12
+#   APPLE_CERTIFICATE_PASSWORD   the .p12 export password
+#   APPLE_TEAM_ID                the 10-char team id
+#   APPLE_ID                     the Apple ID email for notarization
+#   APPLE_APP_PASSWORD           an app-specific password for that Apple ID
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version, e.g. 0.2 (blank = auto-increment from macos-v* tags)'
+        required: false
+        default: ''
+
+concurrency:
+  group: release-macos
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Build and release macOS DMG
+    runs-on: macos-26
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Determine version
+      id: version
+      run: |
+        if [[ -n "${{ inputs.version }}" ]]; then
+          VERSION="${{ inputs.version }}"
+        else
+          LATEST=$(git tag -l "macos-v*" | sed 's/^macos-v//' | sort -V | tail -1)
+          if [[ -z "$LATEST" ]]; then
+            VERSION="0.1"
+          else
+            VERSION="${LATEST%.*}.$(( ${LATEST##*.} + 1 ))"
+          fi
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "::notice::macOS release $VERSION (build ${{ github.run_number }})"
+
+    - name: Setup Rust environment
+      uses: ./.github/actions/setup-rust
+
+    - name: Install xcodegen
+      run: brew install xcodegen
+
+    - name: Stamp the version into project.yml
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        BUILD="${{ github.run_number }}"
+        sed -i '' "s/MARKETING_VERSION: .*/MARKETING_VERSION: \"$VERSION\"/" visible-macos/visible/project.yml
+        sed -i '' "s/CURRENT_PROJECT_VERSION: .*/CURRENT_PROJECT_VERSION: $BUILD/" visible-macos/visible/project.yml
+
+    - name: Build Rust bridge (release)
+      run: ./visible-bridge/build-macos.sh --release
+
+    - name: Generate Xcode project
+      working-directory: visible-macos/visible
+      run: xcodegen generate
+
+    - name: Build app (unsigned)
+      run: |
+        xcodebuild -project visible-macos/visible/visible.xcodeproj \
+          -scheme visible \
+          -configuration Release \
+          -derivedDataPath build \
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+          build
+        echo "APP_PATH=build/Build/Products/Release/visible.app" >> "$GITHUB_ENV"
+
+    - name: Import Apple certificate
+      env:
+        APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      run: |
+        if [[ -z "$APPLE_CERTIFICATE" ]]; then
+          echo "APPLE_CERTIFICATE is not set — add the Apple Developer secrets (see this workflow's header) before releasing macOS." >&2
+          exit 1
+        fi
+        KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+        KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+        security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+        security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+        echo "$APPLE_CERTIFICATE" | base64 --decode > $RUNNER_TEMP/certificate.p12
+        security import $RUNNER_TEMP/certificate.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+        security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+        security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+    - name: Sign the app bundle
+      env:
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        IDENTITY=$(security find-identity -v -p codesigning | grep "$APPLE_TEAM_ID" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        echo "Signing with: $IDENTITY"
+        # Expand $(AppIdentifierPrefix) so the keychain-access-group resolves to
+        # the team-prefixed group (what the data-protection keychain requires).
+        ENTITLEMENTS=$(mktemp)
+        sed "s/\$(AppIdentifierPrefix)/${APPLE_TEAM_ID}./" visible-macos/visible/visible/visible.entitlements > "$ENTITLEMENTS"
+        codesign --force --sign "$IDENTITY" --options runtime --entitlements "$ENTITLEMENTS" "$APP_PATH"
+        codesign --verify --verbose "$APP_PATH"
+
+    - name: Create and sign the DMG
+      env:
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        IDENTITY=$(security find-identity -v -p codesigning | grep "$APPLE_TEAM_ID" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        mkdir -p target
+        DMG_TEMP=$(mktemp -d)
+        trap "rm -rf $DMG_TEMP" EXIT
+        cp -R "$APP_PATH" "$DMG_TEMP/visible.app"
+        ln -s /Applications "$DMG_TEMP/Applications"
+        hdiutil create -volname "visible" -srcfolder "$DMG_TEMP" -ov -format UDZO "target/visible-macos.dmg"
+        codesign --force --sign "$IDENTITY" "target/visible-macos.dmg"
+
+    - name: Notarize and staple the DMG
+      env:
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        xcrun notarytool submit "target/visible-macos.dmg" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait
+        xcrun stapler staple "target/visible-macos.dmg"
+
+    - name: Create git tag
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        if ! git rev-parse "macos-v$VERSION" >/dev/null 2>&1; then
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "macos-v$VERSION"
+          git push origin "macos-v$VERSION"
+        fi
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: macos-v${{ steps.version.outputs.version }}
+        files: target/visible-macos.dmg
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Refresh the macos-latest download
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release view macos-latest >/dev/null 2>&1 \
+          || gh release create macos-latest --latest=false --title "macOS — latest" \
+               --notes "Stable download link that always serves the newest macOS build."
+        gh release upload macos-latest target/visible-macos.dmg --clobber
