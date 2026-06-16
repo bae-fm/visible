@@ -72,6 +72,7 @@ struct TasksView: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
+                let remaining = tasks.filter { !$0.done }.count
                 Section {
                     ForEach(tasks, id: \.id) { task in
                         TaskRow(
@@ -81,6 +82,10 @@ struct TasksView: View {
                             onDelete: { model.delete(id: task.id) }
                         )
                     }
+                } header: {
+                    Text("\(remaining) to do · \(tasks.count) total")
+                } footer: {
+                    Text("Shared across everyone in the home — changes sync on the next refresh.")
                 }
             }
         }

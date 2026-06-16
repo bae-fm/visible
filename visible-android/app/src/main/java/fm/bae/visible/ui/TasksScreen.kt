@@ -12,9 +12,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -103,15 +104,30 @@ fun TasksScreen(
                             )
                         }
                     } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(tasks, key = { it.id }) { task ->
-                                TaskRow(
-                                    task = task,
-                                    onToggle = { done -> viewModel.setDone(task, done) },
-                                    onRename = { renaming = task },
-                                    onDelete = { viewModel.delete(task.id) },
-                                )
+                        val remaining = tasks.count { !it.done }
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            Text(
+                                text = "$remaining to do · ${tasks.size} total",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                            LazyColumn(modifier = Modifier.weight(1f)) {
+                                items(tasks, key = { it.id }) { task ->
+                                    TaskRow(
+                                        task = task,
+                                        onToggle = { done -> viewModel.setDone(task, done) },
+                                        onRename = { renaming = task },
+                                        onDelete = { viewModel.delete(task.id) },
+                                    )
+                                }
                             }
+                            Text(
+                                text = "Shared across everyone in the home — changes sync on the next refresh.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(16.dp),
+                            )
                         }
                     }
                 }
@@ -144,7 +160,17 @@ private fun TaskRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Checkbox(checked = task.done, onCheckedChange = onToggle)
+        IconButton(onClick = { onToggle(!task.done) }) {
+            Icon(
+                imageVector = if (task.done) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                contentDescription = if (task.done) "Mark not done" else "Mark done",
+                tint = if (task.done) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
         Text(
             text = task.title,
             modifier = Modifier.weight(1f),
