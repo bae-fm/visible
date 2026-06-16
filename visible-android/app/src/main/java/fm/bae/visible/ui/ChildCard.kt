@@ -1,5 +1,6 @@
 package fm.bae.visible.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -40,7 +41,7 @@ fun ChildCard(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
-    Card {
+    Card(border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Box(
             modifier = Modifier.combinedClickable(
                 onClick = onOpen,

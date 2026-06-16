@@ -32,6 +32,11 @@ struct ChildCard: View {
         .buttonStyle(.plain)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.06), radius: 6, y: 3)
         .contextMenu {
             // A child always has a parent, so it is never the root: Move and
             // Delete both apply.

@@ -236,6 +236,16 @@ struct BrowseView: View {
         }
     }
 
+    #if os(macOS)
+    /// The desktop grid's count label: the house's children are "rooms", a deeper
+    /// node's are "things".
+    private func countLabel(node: BridgeNode, count: Int) -> String {
+        let isRoot = node.parentId == nil
+        let unit = isRoot ? (count == 1 ? "room" : "rooms") : (count == 1 ? "thing" : "things")
+        return "\(count) \(unit)"
+    }
+    #endif
+
     private func loaded(node: BridgeNode, children: [BridgeNode]) -> some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 16) {
@@ -264,6 +274,16 @@ struct BrowseView: View {
                         .padding(.top, 48)
                         .gridCellColumns(2)
                 } else {
+                    #if os(macOS)
+                    // The desktop layout labels the grid with its count ("N rooms"
+                    // at the house, "N things" deeper). The phone layout omits it.
+                    Text(countLabel(node: node, count: children.count))
+                        .font(.footnote)
+                        .textCase(.uppercase)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .gridCellColumns(2)
+                    #endif
                     ForEach(children, id: \.id) { child in
                         ChildCard(
                             child: child,
