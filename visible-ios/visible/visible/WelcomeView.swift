@@ -17,11 +17,19 @@ struct WelcomeView: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Set up the home you want to keep track of, or join one a co-householder already shares with you.")
-                        .foregroundStyle(.secondary)
+                    VStack(spacing: 16) {
+                        Brand()
+                        Text("Set up the home you want to keep track of, or join one a co-householder already shares with you.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
                 }
+                .listRowBackground(Color.clear)
 
-                Section("Create a home") {
+                Section {
                     TextField("Home name", text: $model.homeName)
                         .textFieldStyle(.roundedBorder)
                         #if os(iOS)
@@ -29,6 +37,10 @@ struct WelcomeView: View {
                         #endif
                     Button("Create home") { model.createHome() }
                         .disabled(!model.canCreate)
+                } header: {
+                    Text("Create a home")
+                } footer: {
+                    Text("Your house sits at the top; rooms, shelves and things branch below it.")
                 }
 
                 Section("Join a home") {
@@ -48,7 +60,7 @@ struct WelcomeView: View {
                     )
                 }
 
-                Section("This device") {
+                Section {
                     switch model.identityCode {
                     case .loading:
                         Text("Loading…")
@@ -59,9 +71,10 @@ struct WelcomeView: View {
                     case let .loaded(code):
                         CodeRow(label: "Your identity code", code: code)
                     }
+                } header: {
+                    Text("This device")
+                } footer: {
                     Text("Send this to whoever owns the home you want to join, so they can invite this device.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
                 if let error = model.errorMessage {

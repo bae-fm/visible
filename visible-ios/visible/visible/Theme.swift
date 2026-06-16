@@ -9,6 +9,13 @@ enum Theme {
         dark: Color(red: 0.627, green: 0.812, blue: 0.808)
     )
 
+    /// Foreground on top of `accent` (Android `onPrimary`): white on the dark
+    /// teal accent in light mode, the deep teal on the light accent in dark mode.
+    static let onAccent = Color(
+        light: .white,
+        dark: Color(red: 0.0, green: 0.125, blue: 0.125)
+    )
+
     /// The neutral fill behind a missing photo (Android `surfaceVariant`).
     static let placeholder = Color(
         light: Color(red: 0.855, green: 0.855, blue: 0.855),
