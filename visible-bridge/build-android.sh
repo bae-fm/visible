@@ -36,14 +36,17 @@ RUSTC_WRAPPER="" cargo build $CARGO_FLAGS --target aarch64-linux-android -p visi
 echo "Building for Android x86_64 ($CARGO_PROFILE)..."
 RUSTC_WRAPPER="" cargo build $CARGO_FLAGS --target x86_64-linux-android -p visible-bridge
 
-# Generate bindings from the actual Android library, not a host build, so the
-# Kotlin API matches the .so exactly. uniffi-bindgen reads metadata statically
-# from the cross-arch object, so it doesn't load it; the bindgen binary itself
-# still builds for the host via `cargo run`.
+# Generate bindings from the built Android library, not a host build, so the
+# Kotlin API matches the target exactly. Read the .a, not the cdylib .so: the
+# release profile strips the .so (strip = true), which removes the uniffi
+# metadata uniffi-bindgen reads, so a release .so yields empty bindings. The .a
+# is never stripped. uniffi metadata is arch-independent and read statically
+# (the object is never loaded), so either target's .a works. (Mirrors
+# build-macos.sh / build-ios.sh, which read the .a.)
 echo "Generating Kotlin bindings..."
 mkdir -p visible-bridge/kotlin-bindings
 cargo run --bin uniffi-bindgen generate \
-    --library "$CARGO_TARGET_DIR/aarch64-linux-android/$CARGO_PROFILE/libvisible_bridge.so" \
+    --library "$CARGO_TARGET_DIR/aarch64-linux-android/$CARGO_PROFILE/libvisible_bridge.a" \
     --language kotlin \
     --out-dir visible-bridge/kotlin-bindings/ \
     --no-format
