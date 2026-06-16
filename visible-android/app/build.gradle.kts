@@ -4,6 +4,13 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// versionName is the app's own `0.N` release line; versionCode the monotonic
+// build number (the release workflow's run number). Both fall back to dev
+// defaults so a plain local build needs no environment.
+val visibleVersionName = System.getenv("VISIBLE_VERSION") ?: "0.1.0"
+val visibleVersionCode = (System.getenv("VISIBLE_VERSION_CODE") ?: "1").toInt()
+val releaseKeystore = System.getenv("ANDROID_KEYSTORE_FILE")
+
 android {
     namespace = "fm.bae.visible"
     compileSdk = 35
@@ -12,9 +19,32 @@ android {
         applicationId = "fm.bae.visible"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = visibleVersionCode
+        versionName = visibleVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        // Only wire the release signing config when CI supplies the keystore;
+        // local `assembleRelease` then produces an unsigned APK rather than
+        // failing, and debug installs are unaffected.
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (releaseKeystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     compileOptions {
